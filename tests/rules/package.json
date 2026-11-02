@@ -1,0 +1,14 @@
+{
+  "name": "orderflow-firestore-rules-tests",
+  "private": true,
+  "type": "module",
+  "description": "Security rules tests. Runs the Firestore emulator (requires Java 11+).",
+  "scripts": {
+    "test": "firebase emulators:exec --only firestore --project demo-orderflow \"node firestore.rules.test.mjs\""
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^4.0.1",
+    "firebase": "^12.10.0",
+    "firebase-tools": "^14.0.0"
+  }
+}

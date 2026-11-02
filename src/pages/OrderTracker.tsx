@@ -1,386 +1,398 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
-import { db } from '../firebase';
-import { Order, RestaurantProfile } from '../types';
-import { CheckCircle, Clock, Package, Truck, XCircle, Phone, X, Star, Camera } from 'lucide-react';
-import { motion } from 'motion/react';
-import { handleFirestoreError, OperationType } from '../utils/errorHandling';
+import React, { useEffect, useRef, useState } from 'react';
+import { Link, useLocation, useParams } from 'react-router-dom';
+import { doc, onSnapshot } from 'firebase/firestore';
 import toast from 'react-hot-toast';
+import { Banknote, Camera, CheckCircle, ChefHat, Clock, CreditCard, Package, Phone, RotateCcw, Star, Truck, XCircle } from 'lucide-react';
+import { db } from '../firebase';
+import type { Order } from '../types';
+import { useAuth } from '../context/AuthContext';
+import { useCart } from '../context/CartContext';
+import { useStore } from '../context/StoreContext';
+import { ApiError, api } from '../lib/api';
+import { formatMoney } from '../lib/money';
+import { orderCode } from '../lib/ids';
+import { customerStatusLabel, isCashDue, netAmount } from '../lib/orderStatus';
+import { formatTimeLabel } from '../lib/hours';
+import { prepMinutes } from '../lib/storeStatus';
+import { toDate } from '../lib/dates';
+import { ConfirmDialog, PageSpinner, Spinner } from '../components/ui';
+import { useStorefrontUI } from '../components/Layout';
+
+const STATUS_TOASTS: Record<string, string> = {
+  confirmed: 'The restaurant accepted your order!',
+  preparing: 'Your order is being prepared.',
+  ready: 'Your order is ready!',
+  out_for_delivery: 'Your order is on the way!',
+  completed: 'Enjoy your meal!',
+  cancelled: 'Your order was cancelled.',
+};
 
 export const OrderTracker: React.FC = () => {
   const { orderId } = useParams<{ orderId: string }>();
+  const location = useLocation();
+  const { user, loading: authLoading } = useAuth();
+  const { profile, catalog, status: storeStatus } = useStore();
+  const { addToCart } = useCart();
+  const { openAuth } = useStorefrontUI();
   const [order, setOrder] = useState<Order | null>(null);
-  const [profile, setProfile] = useState<RestaurantProfile | null>(null);
-  const [loadingOrder, setLoadingOrder] = useState(true);
-  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [state, setState] = useState<'loading' | 'ready' | 'missing'>('loading');
+  const [checkingPayment, setCheckingPayment] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelling, setCancelling] = useState(false);
-  const [ratingValue, setRatingValue] = useState<number>(0);
-  const [ratingText, setRatingText] = useState('');
+  const [rating, setRating] = useState(0);
+  const [comment, setComment] = useState('');
   const [submittingRating, setSubmittingRating] = useState(false);
-  const prevStatusRef = useRef<string | null>(null);
+  const prevStatus = useRef<string | null>(null);
+  const paymentChecked = useRef(false);
 
   useEffect(() => {
-    if (!orderId) return;
-
-    const unsubOrder = onSnapshot(doc(db, 'orders', orderId), (doc) => {
-      if (doc.exists()) {
-        const newOrder = { id: doc.id, ...doc.data() } as Order;
-        setOrder(newOrder);
-        
-        // Notify on status change
-        if (prevStatusRef.current && prevStatusRef.current !== newOrder.status) {
-          const statusMessages: Record<string, string> = {
-            'confirmed': 'Your order has been confirmed!',
-            'preparing': 'We are preparing your order.',
-            'ready': 'Your order is ready for pickup!',
-            'out_for_delivery': 'Your order is out for delivery!',
-            'completed': 'Your order is completed. Enjoy!',
-            'cancelled': 'Your order has been cancelled.'
-          };
-          
-          if (statusMessages[newOrder.status]) {
-            toast.success(statusMessages[newOrder.status], {
-              icon: newOrder.status === 'cancelled' ? '❌' : '✅',
-            });
-          }
+    if (!orderId || authLoading) return;
+    if (!user) {
+      setState('missing');
+      return;
+    }
+    const unsub = onSnapshot(
+      doc(db, 'orders', orderId),
+      (snap) => {
+        if (!snap.exists()) {
+          setOrder(null);
+          setState('missing');
+          return;
         }
-        prevStatusRef.current = newOrder.status;
-      } else {
-        setOrder(null);
-      }
-      setLoadingOrder(false);
-    }, (error) => handleFirestoreError(error, OperationType.GET, `orders/${orderId}`));
+        const next = { id: snap.id, ...snap.data() } as Order;
+        if (prevStatus.current && prevStatus.current !== next.status && STATUS_TOASTS[next.status]) {
+          toast(STATUS_TOASTS[next.status], { icon: next.status === 'cancelled' ? '❌' : '✅', duration: 6000 });
+          navigator.vibrate?.(150);
+        }
+        prevStatus.current = next.status;
+        setOrder(next);
+        setState('ready');
+      },
+      () => setState('missing'),
+    );
+    return () => unsub();
+  }, [orderId, user, authLoading]);
 
-    const unsubProfile = onSnapshot(doc(db, 'restaurant', 'profile'), (docSnap) => {
-      if (docSnap.exists()) {
-        setProfile(docSnap.data() as RestaurantProfile);
-      }
-      setLoadingProfile(false);
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'restaurant/profile'));
+  // Self-heal: if the payment went through but the confirmation never reached us
+  // (closed tab, flaky network), ask the server to check with Stripe once.
+  useEffect(() => {
+    if (!order || paymentChecked.current) return;
+    if (order.status === 'payment_pending' && order.paymentMethod !== 'cash') {
+      paymentChecked.current = true;
+      setCheckingPayment(true);
+      api
+        .confirmPayment(order.id)
+        .catch(() => undefined)
+        .finally(() => setCheckingPayment(false));
+    }
+  }, [order]);
 
-    return () => {
-      unsubOrder();
-      unsubProfile();
-    };
-  }, [orderId]);
+  if (state === 'loading' || authLoading) return <PageSpinner label="Loading your order…" />;
 
-  const [showCancelModal, setShowCancelModal] = useState(false);
+  if (state === 'missing' || !order) {
+    return (
+      <div className="text-center py-20 max-w-sm mx-auto">
+        <h1 className="text-2xl font-extrabold mb-2">Order not found</h1>
+        <p className="text-muted mb-6">{user ? "We couldn't find this order on your account." : 'Sign in to see your order.'}</p>
+        {user ? (
+          <Link to="/my-orders" className="inline-block bg-brand text-on-brand px-6 py-3 rounded-btn font-semibold">
+            My orders
+          </Link>
+        ) : (
+          <button onClick={openAuth} className="bg-brand text-on-brand px-6 py-3 rounded-btn font-semibold">
+            Sign in
+          </button>
+        )}
+      </div>
+    );
+  }
 
-  const handleCancelOrder = async () => {
-    setShowCancelModal(true);
-  };
+  const isDelivery = order.type === 'delivery';
+  const steps = [
+    { key: 'new', label: 'Received', icon: Clock },
+    { key: 'confirmed', label: 'Accepted', icon: CheckCircle },
+    { key: 'preparing', label: 'Preparing', icon: ChefHat },
+    { key: isDelivery ? 'out_for_delivery' : 'ready', label: isDelivery ? 'On the way' : 'Ready', icon: isDelivery ? Truck : Package },
+    { key: 'completed', label: isDelivery ? 'Delivered' : 'Picked up', icon: CheckCircle },
+  ];
+  const order_: Record<string, number> = { new: 0, confirmed: 1, preparing: 2, ready: isDelivery ? 2 : 3, out_for_delivery: 3, completed: 4 };
+  const currentStep = order_[order.status] ?? -1;
+  const cancelled = order.status === 'cancelled';
+  const pendingPayment = order.status === 'payment_pending';
+  const cashDue = isCashDue(order);
+  const paidByCard = order.paymentMethod !== 'cash' && ['paid', 'partially_refunded'].includes(order.paymentStatus || '');
 
-  const confirmCancelOrder = async () => {
-    if (!order || !orderId) return;
-    
+  const scheduled = toDate(order.scheduledFor);
+  const created = toDate(order.createdAt);
+  const eta = !scheduled && created && ['new', 'confirmed', 'preparing'].includes(order.status) ? new Date(created.getTime() + prepMinutes(profile) * 60_000) : null;
+
+  const handleCancel = async () => {
     setCancelling(true);
-    setShowCancelModal(false);
     try {
-      await updateDoc(doc(db, 'orders', orderId), { status: 'cancelled' });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `orders/${orderId}`);
+      const res = await api.cancel(order.id, 'Cancelled by customer');
+      toast.success(res.refunded ? 'Order cancelled. Your refund is on its way.' : 'Order cancelled.');
+      setCancelOpen(false);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Could not cancel the order.');
     } finally {
       setCancelling(false);
     }
   };
 
-  const handleUpdateRating = async () => {
-    if (!order || !orderId || ratingValue === 0) return;
+  const submitRating = async () => {
+    if (!rating) return;
     setSubmittingRating(true);
     try {
-      await updateDoc(doc(db, 'orders', orderId), {
-        rating: ratingValue,
-        ratingComment: ratingText,
-      });
-      // We can also update restaurant profile average rating here if we want!
-      toast.success('Thank you for your rating!');
-    } catch (error) {
-       handleFirestoreError(error, OperationType.UPDATE, `orders/${orderId}`);
+      await api.rate(order.id, rating, comment.trim());
+      toast.success('Thanks for your feedback!');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not save your rating.');
     } finally {
       setSubmittingRating(false);
     }
   };
 
-  if (loadingOrder || loadingProfile) {
-    return (
-      <div className="flex justify-center items-center min-h-[50vh]">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black"></div>
-      </div>
-    );
-  }
+  const reorder = () => {
+    let added = 0;
+    for (const line of order.items) {
+      const item = catalog.items.get(line.itemId);
+      if (!item || !item.active || item.isSoldOut) continue;
+      addToCart({ itemId: line.itemId, name: item.name, price: line.price, quantity: line.quantity, selectedModifiers: line.selectedModifiers || [], prepNotes: line.prepNotes });
+      added += line.quantity;
+    }
+    if (added) toast.success(`Added ${added} item${added === 1 ? '' : 's'} to your cart`);
+    else toast.error('These items are no longer available.');
+  };
 
-  if (!order) {
-    return (
-      <div className="text-center py-20">
-        <h2 className="text-2xl font-bold text-black mb-4">Order not found</h2>
-        <Link to="/" className="text-black font-medium hover:underline">Return to Menu</Link>
-      </div>
-    );
-  }
-
-  const statusSteps = [
-    { key: 'new', label: 'Order Placed', icon: Clock },
-    { key: 'confirmed', label: 'Confirmed', icon: CheckCircle },
-    { key: 'preparing', label: 'Preparing', icon: Package },
-    { key: order.type === 'delivery' ? 'out_for_delivery' : 'ready', label: order.type === 'delivery' ? 'Out for Delivery' : 'Ready for Pickup', icon: Truck },
-    { key: 'completed', label: 'Completed', icon: CheckCircle },
+  const breakdown: [string, number | undefined, string?][] = [
+    ['Subtotal', order.subtotal],
+    ['Discount' + (order.promoCode ? ` (${order.promoCode})` : ''), order.discountAmount ? -order.discountAmount : 0, 'text-emerald-700'],
+    ['Delivery fee', order.deliveryFee],
+    ['Service fee', order.serviceFee],
+    ['Tax', order.tax],
+    ['Tip', order.restaurantTip],
+    ['Driver tip', order.deliveryTip],
   ];
 
-  const currentStepIndex = statusSteps.findIndex(s => s.key === order.status);
-  const isCancelled = order.status === 'cancelled';
-  const canCancel = order.status === 'new' || order.status === 'confirmed';
-  const isPreparingOrLater = ['preparing', 'ready', 'out_for_delivery', 'completed'].includes(order.status);
-
   return (
-    <div className="max-w-3xl mx-auto">
-      <div className="bg-white rounded-[2rem] shadow-ios-sm border border-gray-100 p-6 sm:p-10">
-        <div className="text-center mb-8 sm:mb-12">
-          <h1 className="text-2xl sm:text-4xl font-bold text-black mb-2 sm:mb-3">Order #{order.id.slice(-6).toUpperCase()}</h1>
-          <p className="text-gray-500 text-sm sm:text-lg mb-1">
-            {order.type === 'delivery' ? 'Delivery to ' + order.deliveryAddress : 'Pickup Order'}
+    <div className="max-w-2xl mx-auto space-y-4">
+      {(location.state as { placed?: boolean } | null)?.placed && !cancelled && (
+        <div className="rounded-card bg-emerald-50 border border-emerald-200 text-emerald-900 px-4 py-3 text-sm font-semibold">
+          🎉 Thanks{order.customerName ? `, ${order.customerName.split(' ')[0]}` : ''}! Your order was sent to the kitchen.
+        </div>
+      )}
+
+      <section className="bg-card rounded-card border border-line p-5 sm:p-7">
+        <div className="text-center">
+          <p className="text-xs font-bold uppercase tracking-widest text-muted">Order #{orderCode(order)}</p>
+          <h1 className="font-display text-2xl sm:text-3xl font-extrabold mt-1">
+            {pendingPayment ? (checkingPayment ? 'Confirming payment…' : 'Payment not completed') : customerStatusLabel(order)}
+          </h1>
+          <p className="text-sm text-muted mt-1">
+            {isDelivery ? `Delivery to ${order.deliveryAddress || 'your address'}` : `Pickup at ${profile?.address || profile?.name || 'the restaurant'}`}
           </p>
-          {order.scheduledTime && (
-            <p className="text-emerald-600 font-medium text-sm sm:text-base mb-4">
-              📅 Scheduled for: {order.scheduledTime}
+          {scheduled && <p className="mt-2 text-sm font-semibold text-brand">Scheduled for {order.scheduledTime || scheduled.toLocaleString()}</p>}
+          {eta && !cancelled && (
+            <p className="mt-2 text-sm font-semibold">
+              Estimated {isDelivery ? 'ready for the driver' : 'ready'} around {formatTimeLabel(eta, storeStatus.timeZone)}
             </p>
-          )}
-          
-          {!isCancelled && (
-            <div className="flex justify-center gap-4 mt-4">
-              {canCancel && (
-                <button
-                  onClick={handleCancelOrder}
-                  disabled={cancelling}
-                  className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-full font-medium transition-colors disabled:opacity-50"
-                >
-                  <X size={18} />
-                  {cancelling ? 'Cancelling...' : 'Cancel Order'}
-                </button>
-              )}
-              {isPreparingOrLater && profile?.phone && (
-                <a
-                  href={`tel:${profile.phone}`}
-                  className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-full font-medium transition-colors"
-                >
-                  <Phone size={18} />
-                  Call Restaurant
-                </a>
-              )}
-            </div>
           )}
         </div>
 
-        {isCancelled ? (
-          <div className="bg-red-50 text-red-700 p-4 sm:p-6 rounded-2xl flex items-center gap-3 sm:gap-4 mb-8 sm:mb-12">
-            <XCircle size={24} className="sm:w-8 sm:h-8 shrink-0" />
-            <div>
-              <h3 className="font-bold text-base sm:text-lg">Order Cancelled</h3>
-              <p className="text-sm sm:text-base">This order has been cancelled. Please contact the restaurant for details.</p>
+        {pendingPayment && !checkingPayment && (
+          <div className="mt-5 rounded-card bg-amber-50 border border-amber-200 p-4 text-sm text-amber-900">
+            We haven't received payment for this order, so it hasn't been sent to the kitchen.{' '}
+            <Link to="/cart" className="font-bold underline">
+              Return to checkout
+            </Link>
+          </div>
+        )}
+
+        {cancelled ? (
+          <div className="mt-6 flex items-start gap-3 rounded-card bg-red-50 border border-red-100 text-red-800 p-4">
+            <XCircle className="shrink-0" size={22} />
+            <div className="text-sm">
+              <p className="font-bold">This order was cancelled.</p>
+              {order.paymentStatus === 'refunded' && <p>A refund of {formatMoney(order.refundAmount ?? order.total)} was issued to your card. It can take 5–10 days to appear.</p>}
+              {order.cancelReason && order.cancelledBy === 'staff' && <p>Reason: {order.cancelReason}</p>}
             </div>
           </div>
         ) : (
-          <>
-            {order.type === 'delivery' && order.driverName && order.status !== 'completed' && (
-              <div className="bg-emerald-50 text-emerald-800 p-4 sm:p-6 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8 sm:mb-12 border border-emerald-100">
-                <div className="flex items-center gap-3 sm:gap-4">
-                  <div className="w-10 h-10 sm:w-12 sm:h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center shrink-0">
-                    <Truck size={20} className="sm:w-6 sm:h-6" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-sm sm:text-base text-emerald-900">Driver Assigned: {order.driverName}</h3>
-                    <p className="text-xs sm:text-sm font-medium mt-0.5">
-                      {order.deliveryStatus === 'picked_up' ? 'Heading to your location' : 'Heading to restaurant to pick up your order'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-            <div className="relative mb-12 sm:mb-16">
-            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-1 bg-gray-100 rounded-2xl hidden sm:block"></div>
-            <div 
-              className="absolute left-0 top-1/2 -translate-y-1/2 h-1 bg-primary rounded-full transition-all duration-500 ease-in-out hidden sm:block"
-              style={{ width: `${Math.max(0, (currentStepIndex / (statusSteps.length - 1)) * 100)}%` }}
-            ></div>
-            
-            <div className="relative flex flex-col sm:flex-row justify-between gap-6 sm:gap-0">
-              {statusSteps.map((step, index) => {
-                const isCompleted = index <= currentStepIndex;
-                const isCurrent = index === currentStepIndex;
+          !pendingPayment && (
+            <ol className="mt-7 grid grid-cols-5 gap-1" aria-label="Order progress">
+              {steps.map((step, i) => {
+                const done = i <= currentStep;
                 const Icon = step.icon;
-                
                 return (
-                  <div key={step.key} className="flex sm:flex-col items-center gap-4 sm:gap-3 relative">
-                    {/* Mobile vertical line */}
-                    {index !== statusSteps.length - 1 && (
-                      <div className="absolute left-5 top-10 bottom-[-24px] w-0.5 bg-gray-100 sm:hidden"></div>
-                    )}
-                    {index !== statusSteps.length - 1 && isCompleted && (
-                      <div className="absolute left-5 top-10 bottom-[-24px] w-0.5 bg-primary sm:hidden"></div>
-                    )}
-
-                    <motion.div 
-                      initial={false}
-                      animate={{ 
-                        scale: isCurrent ? 1.1 : 1,
-                        backgroundColor: isCompleted ? 'var(--color-primary)' : '#f3f4f6',
-                        color: isCompleted ? '#ffffff' : '#9ca3af',
-                        borderColor: isCompleted ? 'var(--color-primary)' : '#e5e7eb'
-                      }}
-                      className="w-10 h-10 rounded-full flex items-center justify-center border-2 z-10 relative bg-white shrink-0"
-                    >
-                      <Icon size={18} className="sm:w-5 sm:h-5" />
-                    </motion.div>
-                    <span className={`text-sm font-medium ${isCompleted ? 'text-black' : 'text-gray-400'}`}>
-                      {step.label}
+                  <li key={step.key} className="flex flex-col items-center text-center gap-1.5">
+                    <span className="relative w-full flex items-center justify-center">
+                      {i > 0 && <span className={`absolute right-1/2 top-1/2 -translate-y-1/2 w-full h-1 rounded ${i <= currentStep ? 'bg-brand' : 'bg-soft'}`} />}
+                      <span
+                        className={`relative z-10 w-10 h-10 rounded-full flex items-center justify-center border-2 transition ${
+                          done ? 'bg-brand border-brand text-on-brand' : 'bg-card border-line text-muted'
+                        } ${i === currentStep ? 'ring-4 ring-brand/20' : ''}`}
+                      >
+                        <Icon size={18} />
+                      </span>
                     </span>
-                  </div>
+                    <span className={`text-[11px] sm:text-xs font-semibold leading-tight ${done ? '' : 'text-muted'}`}>{step.label}</span>
+                  </li>
                 );
               })}
-            </div>
-          </div>
-          </>
+            </ol>
+          )
         )}
 
-        <div className="border-t border-gray-100 pt-6 sm:pt-8">
-          <h3 className="text-lg sm:text-xl font-bold text-black mb-4 sm:mb-6">Order Details</h3>
-          <div className="space-y-3 sm:space-y-4 mb-6 sm:mb-8">
-            {order.items.map((item, idx) => (
-              <div key={idx} className="flex justify-between items-center text-sm sm:text-base">
-                <div className="flex items-center gap-2 sm:gap-3">
-                  <span className="bg-gray-100 text-gray-600 font-medium px-2 py-0.5 sm:py-1 rounded text-xs sm:text-sm">
-                    {item.quantity}x
-                  </span>
-                  <span className="font-medium text-black">{item.name}</span>
-                </div>
-                <span className="text-gray-600 font-medium">${(item.price * item.quantity).toFixed(2)}</span>
+        {isDelivery && order.driverName && !cancelled && order.status !== 'completed' && (
+          <div className="mt-6 flex items-center gap-3 rounded-card bg-soft p-4">
+            <Truck className="text-brand shrink-0" size={22} />
+            <div className="text-sm">
+              <p className="font-bold">{order.driverName} is your driver</p>
+              <p className="text-muted">{order.deliveryStatus === 'picked_up' ? 'Heading your way now.' : 'Heading to the restaurant to pick up your order.'}</p>
+            </div>
+          </div>
+        )}
+
+        <div className="mt-6 flex flex-wrap justify-center gap-2">
+          {order.status === 'new' && (
+            <button onClick={() => setCancelOpen(true)} className="px-4 py-2.5 rounded-btn bg-red-50 text-red-700 text-sm font-semibold">
+              Cancel order
+            </button>
+          )}
+          {profile?.phone && (
+            <a href={`tel:${profile.phone}`} className="px-4 py-2.5 rounded-btn bg-soft text-sm font-semibold flex items-center gap-2">
+              <Phone size={16} /> Call restaurant
+            </a>
+          )}
+          {(order.status === 'completed' || cancelled) && (
+            <button onClick={reorder} className="px-4 py-2.5 rounded-btn bg-brand text-on-brand text-sm font-semibold flex items-center gap-2">
+              <RotateCcw size={16} /> Order again
+            </button>
+          )}
+        </div>
+      </section>
+
+      <section className="bg-card rounded-card border border-line p-5 sm:p-7">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-bold">Payment</h2>
+          <span className="text-sm flex items-center gap-1.5 text-muted">
+            {order.paymentMethod === 'cash' ? <Banknote size={16} /> : <CreditCard size={16} />}
+            {order.paymentMethod === 'cash' ? 'Cash' : 'Card'}
+          </span>
+        </div>
+        {cashDue ? (
+          <p className="rounded-btn bg-amber-50 border border-amber-200 text-amber-900 px-3 py-2 text-sm font-semibold">
+            Please pay {formatMoney(order.total)} in cash {isDelivery ? 'to your driver' : 'when you pick up'}.
+          </p>
+        ) : order.paymentStatus === 'paid' ? (
+          <p className="text-sm text-emerald-700 font-semibold">Paid{order.paymentMethod === 'cash' ? ' in cash' : ''} · {formatMoney(order.total)}</p>
+        ) : null}
+
+        <h2 className="font-bold mt-6 mb-3">Items</h2>
+        <ul className="space-y-3">
+          {order.items.map((item, idx) => (
+            <li key={idx} className="flex justify-between gap-3 text-sm">
+              <div className="min-w-0">
+                <p className="font-semibold">
+                  <span className="text-muted mr-1.5">{item.quantity}×</span>
+                  {item.name}
+                </p>
+                {item.selectedModifiers?.length > 0 && <p className="text-xs text-muted">{item.selectedModifiers.map((m) => m.name).join(', ')}</p>}
+                {item.prepNotes && <p className="text-xs text-muted italic">“{item.prepNotes}”</p>}
+              </div>
+              <span className="whitespace-nowrap">{formatMoney(item.price * item.quantity)}</span>
+            </li>
+          ))}
+        </ul>
+
+        {order.notes && (
+          <div className="mt-4 rounded-btn bg-soft px-3 py-2 text-sm">
+            <span className="font-semibold">Notes:</span> {order.notes}
+          </div>
+        )}
+
+        <div className="mt-5 pt-4 border-t border-line space-y-1.5 text-sm">
+          {breakdown
+            .filter(([, v]) => !!v)
+            .map(([label, value, cls]) => (
+              <div key={label} className={`flex justify-between ${cls || ''}`}>
+                <span>{label}</span>
+                <span>{formatMoney(value || 0)}</span>
               </div>
             ))}
+          <div className="flex justify-between font-extrabold text-base pt-2">
+            <span>Total</span>
+            <span>{formatMoney(order.total)}</span>
           </div>
-
-          {order.notes && (
-            <div className="mb-6 sm:mb-8 p-4 bg-gray-50 rounded-2xl border border-gray-100">
-              <h4 className="text-sm font-bold text-black mb-2">Order Notes & Allergies</h4>
-              <p className="text-gray-600 text-sm">{order.notes}</p>
+          {!!order.refundAmount && order.refundAmount > 0 && (
+            <div className="flex justify-between text-red-700 text-sm">
+              <span>Refunded</span>
+              <span>
+                −{formatMoney(order.refundAmount)} (net {formatMoney(netAmount(order))})
+              </span>
             </div>
           )}
-
-          <div className="space-y-2 sm:space-y-3 text-sm sm:text-base text-gray-600 border-t border-gray-100 pt-4 sm:pt-6">
-            <div className="flex justify-between">
-              <span>Subtotal</span>
-              <span className="font-medium">${order.subtotal?.toFixed(2) || order.total.toFixed(2)}</span>
-            </div>
-            {order.deliveryFee ? (
-              <div className="flex justify-between">
-                <span>Delivery Fee</span>
-                <span className="font-medium">${order.deliveryFee.toFixed(2)}</span>
-              </div>
-            ) : null}
-            <div className="flex justify-between text-base sm:text-lg font-bold text-black pt-3 border-t border-gray-100">
-              <span>Total</span>
-              <span>${order.total.toFixed(2)}</span>
-            </div>
-          </div>
         </div>
+      </section>
 
-        {order.proofOfDeliveryImage && (
-          <div className="border-t border-gray-100 pt-6 sm:pt-8 mt-6 sm:mt-8">
-            <h3 className="text-lg sm:text-xl font-bold text-black mb-4 sm:mb-6 flex items-center gap-2">
-              <Camera size={20} className="text-primary" />
-              Proof of Delivery
-            </h3>
-            <div className="rounded-3xl overflow-hidden border border-gray-100 shadow-ios-sm aspect-square sm:aspect-auto sm:h-80 w-full max-w-sm bg-gray-50 flex items-center justify-center">
-              <img 
-                src={order.proofOfDeliveryImage} 
-                alt="Proof of Delivery" 
-                className="w-full h-full object-cover"
-              />
-            </div>
-          </div>
-        )}
-
-        {order.status === 'completed' && (
-          <div className="border-t border-gray-100 pt-6 sm:pt-8 mt-6 sm:mt-8">
-            <h3 className="text-lg sm:text-xl font-bold text-black mb-4 sm:mb-6">How was your order?</h3>
-            {order.rating ? (
-              <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100">
-                <div className="flex items-center gap-2 mb-3">
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <Star
-                      key={star}
-                      size={24}
-                      className={star <= order.rating! ? "fill-[#F5A623] text-[#F5A623]" : "text-gray-300"}
-                    />
-                  ))}
-                </div>
-                {order.ratingComment && (
-                  <p className="text-gray-600 text-sm">"{order.ratingComment}"</p>
-                )}
-                <p className="text-gray-400 text-xs mt-4">Thank you for your feedback!</p>
-              </div>
-            ) : (
-              <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100">
-                <div className="flex items-center gap-2 mb-4">
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <button
-                      key={star}
-                      onClick={() => setRatingValue(star)}
-                      className="focus:outline-none hover:scale-110 transition-transform"
-                    >
-                      <Star
-                        size={32}
-                        className={star <= ratingValue ? "fill-[#F5A623] text-[#F5A623]" : "text-gray-300 hover:text-gray-400"}
-                      />
-                    </button>
-                  ))}
-                </div>
-                <textarea
-                  value={ratingText}
-                  onChange={(e) => setRatingText(e.target.value)}
-                  placeholder="Tell us about your experience... (optional)"
-                  className="w-full rounded-xl border-gray-200 shadow-sm focus:border-black focus:ring-black mb-4 resize-none"
-                  rows={3}
-                />
-                <button
-                  onClick={handleUpdateRating}
-                  disabled={ratingValue === 0 || submittingRating}
-                  className="w-full sm:w-auto px-6 py-2.5 bg-black text-white rounded-full font-bold hover:bg-gray-800 disabled:bg-gray-300 transition-colors"
-                >
-                  {submittingRating ? 'Submitting...' : 'Submit Rating'}
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Cancel Order Modal */}
-      {showCancelModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-[2rem] p-6 sm:p-8 max-w-md w-full shadow-ios-lg">
-            <h3 className="text-2xl font-bold text-black mb-4">Cancel Order</h3>
-            <p className="text-gray-500 mb-6">
-              Are you sure you want to cancel this order? This action cannot be undone.
-            </p>
-            <div className="flex gap-4">
-              <button
-                onClick={() => setShowCancelModal(false)}
-                className="flex-1 px-4 py-3 rounded-full font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors"
-                disabled={cancelling}
-              >
-                Keep Order
-              </button>
-              <button
-                onClick={confirmCancelOrder}
-                className="flex-1 px-4 py-3 rounded-full font-bold text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50 shadow-sm"
-                disabled={cancelling}
-              >
-                {cancelling ? 'Cancelling...' : 'Cancel Order'}
-              </button>
-            </div>
-          </div>
-        </div>
+      {order.proofOfDeliveryImage && (
+        <section className="bg-card rounded-card border border-line p-5">
+          <h2 className="font-bold mb-3 flex items-center gap-2">
+            <Camera size={18} /> Proof of delivery
+          </h2>
+          <img src={order.proofOfDeliveryImage} alt="Proof of delivery" className="rounded-btn w-full max-w-sm object-cover" />
+        </section>
       )}
+
+      {order.status === 'completed' && (
+        <section className="bg-card rounded-card border border-line p-5">
+          <h2 className="font-bold mb-3">How was your order?</h2>
+          {order.rating ? (
+            <div>
+              <div className="flex gap-1 mb-2">
+                {[1, 2, 3, 4, 5].map((s) => (
+                  <Star key={s} size={22} className={s <= order.rating! ? 'fill-amber-400 text-amber-400' : 'text-line'} />
+                ))}
+              </div>
+              {order.ratingComment && <p className="text-sm text-muted">“{order.ratingComment}”</p>}
+              <p className="text-xs text-muted mt-2">Thanks for your feedback!</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex gap-1">
+                {[1, 2, 3, 4, 5].map((s) => (
+                  <button key={s} onClick={() => setRating(s)} aria-label={`${s} star${s > 1 ? 's' : ''}`} className="p-1">
+                    <Star size={32} className={s <= rating ? 'fill-amber-400 text-amber-400' : 'text-line'} />
+                  </button>
+                ))}
+              </div>
+              <textarea
+                value={comment}
+                onChange={(e) => setComment(e.target.value.slice(0, 1000))}
+                rows={3}
+                placeholder="Tell us more (optional)"
+                className="w-full rounded-btn border border-line bg-page px-3.5 py-2.5 text-sm placeholder:text-muted focus:ring-2 focus:ring-brand outline-none resize-none"
+              />
+              <button onClick={submitRating} disabled={!rating || submittingRating} className="px-6 py-3 rounded-btn bg-brand text-on-brand font-semibold disabled:opacity-50 flex items-center gap-2">
+                {submittingRating && <Spinner size={16} />} Submit rating
+              </button>
+            </div>
+          )}
+        </section>
+      )}
+
+      <ConfirmDialog
+        open={cancelOpen}
+        surface="store"
+        danger
+        busy={cancelling}
+        title="Cancel this order?"
+        message={paidByCard ? `You'll be refunded ${formatMoney(order.total)} to your card.` : 'The restaurant has not started on it yet.'}
+        confirmLabel="Cancel order"
+        cancelLabel="Keep order"
+        onCancel={() => setCancelOpen(false)}
+        onConfirm={handleCancel}
+      />
     </div>
   );
 };

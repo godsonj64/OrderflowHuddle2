@@ -1,459 +1,318 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { collection, onSnapshot, query, orderBy, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
+import React, { useMemo, useState } from 'react';
+import { addDoc, collection, deleteDoc, doc, updateDoc, writeBatch } from 'firebase/firestore';
+import toast from 'react-hot-toast';
+import { ArrowDown, ArrowUp, Eye, EyeOff, ImageOff, MoreHorizontal, Pencil, Plus, Search, Star, Trash2 } from 'lucide-react';
 import { db } from '../firebase';
-import { MenuCategory, MenuItem } from '../types';
-import { useAuth } from '../context/AuthContext';
-import { Navigate, Link } from 'react-router-dom';
-import { Plus, Edit2, Trash2, ArrowLeft, Image as ImageIcon, X } from 'lucide-react';
-import { handleFirestoreError, OperationType } from '../utils/errorHandling';
-import { resizeAndConvertImage } from '../utils/imageUpload';
+import type { MenuCategory, MenuItem } from '../types';
+import { useStore } from '../context/StoreContext';
+import { ItemEditor } from '../components/ItemEditor';
+import { ConfirmDialog, Field, PageSpinner, Sheet, Spinner, adminInput } from '../components/ui';
+import { formatMoney } from '../lib/money';
+import { friendlyError } from '../utils/errorHandling';
+
+const UNCATEGORIZED = '__uncategorized__';
+
+const sortItems = (a: MenuItem, b: MenuItem) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0) || a.name.localeCompare(b.name);
 
 export const AdminMenu: React.FC = () => {
-  const { userProfile, loading: authLoading } = useAuth();
-  const [categories, setCategories] = useState<MenuCategory[]>([]);
-  const [items, setItems] = useState<MenuItem[]>([]);
-  const [loadingCategories, setLoadingCategories] = useState(true);
-  const [loadingItems, setLoadingItems] = useState(true);
-  
-  const [newCategory, setNewCategory] = useState<Partial<MenuCategory>>({ name: '', active: true, imageUrl: '' });
-  const [newItem, setNewItem] = useState<Partial<MenuItem>>({ 
-    name: '', 
-    basePrice: 0, 
-    active: true, 
-    categoryId: '',
-    imageUrl: '',
-    preparationTime: 15,
-    dietaryTags: [],
-    modifierGroups: []
-  });
-  const categoryImageInputRef = useRef<HTMLInputElement>(null);
-  const itemImageInputRef = useRef<HTMLInputElement>(null);
+  const { categories, items, menuLoading } = useStore();
+  const [search, setSearch] = useState('');
+  const [editing, setEditing] = useState<{ item: MenuItem | null; categoryId: string } | null>(null);
+  const [categoryForm, setCategoryForm] = useState<{ category: MenuCategory | null; name: string; description: string } | null>(null);
+  const [categoryMenu, setCategoryMenu] = useState<MenuCategory | null>(null);
+  const [deleteCategory, setDeleteCategory] = useState<MenuCategory | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const categoryIds = useMemo(() => new Set(categories.map((c) => c.id)), [categories]);
+  const sections = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const match = (i: MenuItem) => !q || i.name.toLowerCase().includes(q) || i.description?.toLowerCase().includes(q);
+    const list = categories.map((c) => ({ category: c as MenuCategory | null, id: c.id, items: items.filter((i) => i.categoryId === c.id && match(i)).sort(sortItems) }));
+    // Items whose category was deleted used to vanish from the admin. Show them so they can be fixed.
+    const orphans = items.filter((i) => !categoryIds.has(i.categoryId) && match(i)).sort(sortItems);
+    if (orphans.length) list.push({ category: null, id: UNCATEGORIZED, items: orphans });
+    return q ? list.filter((s) => s.items.length) : list;
+  }, [categories, items, categoryIds, search]);
 
-  useEffect(() => {
-    if (authLoading) return;
-    if (!userProfile || !['admin', 'restaurant_owner', 'manager'].includes(userProfile.role)) return;
+  const stats = useMemo(
+    () => ({
+      total: items.length,
+      hidden: items.filter((i) => !i.active).length,
+      soldOut: items.filter((i) => i.active && i.isSoldOut).length,
+      noPhoto: items.filter((i) => i.active && !i.imageUrl).length,
+    }),
+    [items],
+  );
 
-    const unsubCategories = onSnapshot(query(collection(db, 'categories'), orderBy('displayOrder')), (snapshot) => {
-      setCategories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as MenuCategory)));
-      setLoadingCategories(false);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'categories'));
-
-    const unsubItems = onSnapshot(collection(db, 'items'), (snapshot) => {
-      setItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as MenuItem)));
-      setLoadingItems(false);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'items'));
-
-    return () => {
-      unsubCategories();
-      unsubItems();
-    };
-  }, [userProfile, authLoading]);
-
-  if (authLoading) {
-    return (
-      <div className="flex justify-center items-center min-h-[50vh]">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black"></div>
-      </div>
-    );
-  }
-
-  if (!userProfile || !['admin', 'restaurant_owner', 'manager'].includes(userProfile.role)) {
-    return <Navigate to="/" />;
-  }
-
-  const handleAddCategory = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newCategory.name?.trim()) return;
+  const quickUpdate = async (item: MenuItem, patch: Partial<MenuItem>, message: string) => {
     try {
-      await addDoc(collection(db, 'categories'), {
-        name: newCategory.name,
-        displayOrder: categories.length,
-        active: true,
-        imageUrl: newCategory.imageUrl || null
-      });
-      setNewCategory({ name: '', active: true, imageUrl: '' });
-      if (categoryImageInputRef.current) categoryImageInputRef.current.value = '';
-      setMessage({ type: 'success', text: 'Category added successfully!' });
-      setTimeout(() => setMessage(null), 3000);
-    } catch (error) {
-      setMessage({ type: 'error', text: 'Failed to add category.' });
-      handleFirestoreError(error, OperationType.CREATE, 'categories');
+      await updateDoc(doc(db, 'items', item.id), patch as Record<string, unknown>);
+      toast.success(message, { id: `quick-${item.id}` });
+    } catch (err) {
+      toast.error(friendlyError(err));
     }
   };
 
-  const handleAddItem = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newItem.name || !newItem.categoryId || newItem.basePrice === undefined || isNaN(newItem.basePrice)) return;
+  const moveItem = async (list: MenuItem[], index: number, dir: -1 | 1) => {
+    const target = index + dir;
+    if (target < 0 || target >= list.length) return;
+    const ordered = [...list];
+    [ordered[index], ordered[target]] = [ordered[target], ordered[index]];
+    const batch = writeBatch(db);
+    ordered.forEach((item, i) => batch.update(doc(db, 'items', item.id), { displayOrder: i }));
     try {
-      const itemData: any = {
-        ...newItem,
-        basePrice: Number(newItem.basePrice),
-        preparationTime: Number(newItem.preparationTime) || 15,
-        active: true,
-        modifierGroups: newItem.modifierGroups || []
-      };
-      if (itemData.calories && !isNaN(itemData.calories)) {
-        itemData.calories = Number(itemData.calories);
+      await batch.commit();
+    } catch (err) {
+      toast.error(friendlyError(err));
+    }
+  };
+
+  const moveCategory = async (category: MenuCategory, dir: -1 | 1) => {
+    const ordered = [...categories];
+    const index = ordered.findIndex((c) => c.id === category.id);
+    const target = index + dir;
+    if (index < 0 || target < 0 || target >= ordered.length) return;
+    [ordered[index], ordered[target]] = [ordered[target], ordered[index]];
+    const batch = writeBatch(db);
+    ordered.forEach((c, i) => batch.update(doc(db, 'categories', c.id), { displayOrder: i }));
+    try {
+      await batch.commit();
+    } catch (err) {
+      toast.error(friendlyError(err));
+    }
+  };
+
+  const saveCategory = async () => {
+    if (!categoryForm) return;
+    const name = categoryForm.name.trim();
+    if (!name) {
+      toast.error('Please enter a category name.');
+      return;
+    }
+    setBusy(true);
+    try {
+      if (categoryForm.category) {
+        await updateDoc(doc(db, 'categories', categoryForm.category.id), { name, description: categoryForm.description.trim() });
       } else {
-        delete itemData.calories;
+        await addDoc(collection(db, 'categories'), {
+          name,
+          description: categoryForm.description.trim(),
+          active: true,
+          displayOrder: categories.reduce((max, c) => Math.max(max, c.displayOrder ?? 0), -1) + 1,
+        });
       }
-
-      await addDoc(collection(db, 'items'), itemData);
-      setNewItem({ 
-        name: '', 
-        basePrice: 0, 
-        active: true, 
-        categoryId: categories[0]?.id || '',
-        imageUrl: '',
-        preparationTime: 15,
-        dietaryTags: [],
-        modifierGroups: []
-      });
-      if (itemImageInputRef.current) itemImageInputRef.current.value = '';
-      setMessage({ type: 'success', text: 'Item added successfully!' });
-      setTimeout(() => setMessage(null), 3000);
-    } catch (error) {
-      setMessage({ type: 'error', text: 'Failed to add item.' });
-      handleFirestoreError(error, OperationType.CREATE, 'items');
+      toast.success('Category saved');
+      setCategoryForm(null);
+    } catch (err) {
+      toast.error(friendlyError(err));
+    } finally {
+      setBusy(false);
     }
   };
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'category' | 'item') => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  const confirmDeleteCategory = async () => {
+    if (!deleteCategory) return;
+    setBusy(true);
     try {
-      const base64Image = await resizeAndConvertImage(file, 800, 800);
-      if (type === 'category') {
-        setNewCategory(prev => ({ ...prev, imageUrl: base64Image }));
-      } else {
-        setNewItem(prev => ({ ...prev, imageUrl: base64Image }));
-      }
-    } catch (error) {
-      console.error('Error processing image:', error);
-      setMessage({ type: 'error', text: 'Failed to process image. Please try another one.' });
-      setTimeout(() => setMessage(null), 3000);
+      await deleteDoc(doc(db, 'categories', deleteCategory.id));
+      toast.success('Category deleted');
+      setDeleteCategory(null);
+    } catch (err) {
+      toast.error(friendlyError(err));
+    } finally {
+      setBusy(false);
     }
   };
 
-  const toggleDietaryTag = (tag: 'vegan' | 'vegetarian' | 'gluten-free' | 'spicy') => {
-    setNewItem(prev => {
-      const tags = prev.dietaryTags || [];
-      if (tags.includes(tag)) {
-        return { ...prev, dietaryTags: tags.filter(t => t !== tag) };
-      } else {
-        return { ...prev, dietaryTags: [...tags, tag] };
-      }
-    });
-  };
+  if (menuLoading) return <PageSpinner label="Loading menu…" />;
 
-  const toggleCategoryActive = async (id: string, current: boolean) => {
-    try {
-      await updateDoc(doc(db, 'categories', id), { active: !current });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `categories/${id}`);
-    }
-  };
-
-  const toggleItemActive = async (id: string, current: boolean) => {
-    try {
-      await updateDoc(doc(db, 'items', id), { active: !current });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `items/${id}`);
-    }
-  };
-
-  const deleteCategory = async (id: string) => {
-    try {
-      await deleteDoc(doc(db, 'categories', id));
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `categories/${id}`);
-    }
-  };
-
-  const deleteItem = async (id: string) => {
-    try {
-      await deleteDoc(doc(db, 'items', id));
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `items/${id}`);
-    }
-  };
-
-  if (loadingCategories || loadingItems) {
-    return (
-      <div className="flex justify-center items-center min-h-[50vh]">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black"></div>
-      </div>
-    );
-  }
+  const itemsInDeleting = deleteCategory ? items.filter((i) => i.categoryId === deleteCategory.id).length : 0;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 sm:space-y-8">
-      <div className="flex items-center gap-3 sm:gap-4 mb-6 sm:mb-8">
-        <Link to="/admin" className="p-2 sm:p-3 hover:bg-gray-100 rounded-2xl transition-colors bg-white shadow-ios-sm border border-gray-100">
-          <ArrowLeft size={20} className="sm:w-6 sm:h-6" />
-        </Link>
-        <h1 className="text-3xl sm:text-4xl font-bold text-black">Menu Management</h1>
+    <div className="space-y-5">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-extrabold">Menu</h1>
+          <p className="text-sm text-gray-500">
+            {stats.total} items · {stats.soldOut} sold out · {stats.hidden} hidden
+            {stats.noPhoto > 0 && ` · ${stats.noPhoto} without photo`}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => setCategoryForm({ category: null, name: '', description: '' })} className="px-4 py-2.5 rounded-2xl bg-white border border-gray-200 font-semibold text-sm flex items-center gap-1.5">
+            <Plus size={16} /> Category
+          </button>
+          <button
+            onClick={() => setEditing({ item: null, categoryId: categories[0]?.id || '' })}
+            disabled={!categories.length}
+            className="px-4 py-2.5 rounded-2xl bg-gray-900 text-white font-semibold text-sm flex items-center gap-1.5 disabled:opacity-40"
+            title={categories.length ? undefined : 'Create a category first'}
+          >
+            <Plus size={16} /> Item
+          </button>
+        </div>
       </div>
 
-      {message && (
-        <div className={`p-4 rounded-2xl font-medium ${message.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
-          {message.text}
+      <div className="relative">
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search items" className={`${adminInput} pl-9`} />
+      </div>
+
+      {categories.length === 0 && (
+        <div className="bg-white rounded-3xl border border-dashed border-gray-200 p-10 text-center">
+          <p className="font-semibold mb-1">Start your menu</p>
+          <p className="text-sm text-gray-500 mb-4">Create a category (like “Burgers” or “Drinks”), then add items to it.</p>
+          <button onClick={() => setCategoryForm({ category: null, name: '', description: '' })} className="px-5 py-3 rounded-2xl bg-gray-900 text-white font-semibold">
+            Create first category
+          </button>
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-10">
-        {/* Categories Panel */}
-        <div className="bg-white p-6 sm:p-8 rounded-[2rem] shadow-ios-sm border border-gray-100 space-y-6 h-fit">
-          <h2 className="text-2xl font-bold text-black">Categories</h2>
-          
-          <form onSubmit={handleAddCategory} className="flex flex-col gap-3">
-            <div className="flex gap-2">
-              <input 
-                type="text" 
-                value={newCategory.name}
-                onChange={(e) => setNewCategory({ ...newCategory, name: e.target.value })}
-                placeholder="New Category Name"
-                className="flex-grow border border-gray-200 rounded-2xl px-4 py-3 focus:ring-2 focus:ring-black focus:border-black outline-none"
-                required
-              />
-              <button type="submit" className="bg-black text-[#EADDC5] p-3 rounded-2xl hover:bg-gray-900 transition-colors shadow-ios-sm">
-                <Plus size={20} />
-              </button>
+      {sections.map(({ category, id, items: list }) => (
+        <section key={id} className="bg-white rounded-3xl border border-gray-100 overflow-hidden">
+          <header className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/60">
+            <div className="min-w-0 flex-1">
+              <h2 className={`font-bold truncate ${category && !category.active ? 'text-gray-400 line-through' : ''}`}>{category ? category.name : 'Uncategorized'}</h2>
+              <p className="text-xs text-gray-500">
+                {category ? (category.active ? `${list.length} items` : 'Hidden from customers') : 'These items are not visible to customers. Move them to a category.'}
+              </p>
             </div>
-            <div className="flex items-center gap-3">
-              <label className="flex items-center gap-2 cursor-pointer bg-gray-50 hover:bg-gray-100 text-gray-700 px-4 py-3 rounded-2xl transition-colors border border-gray-200 w-full justify-center">
-                <ImageIcon size={18} />
-                <span className="text-sm font-medium">{newCategory.imageUrl ? 'Change Image' : 'Upload Image'}</span>
-                <input 
-                  type="file" 
-                  accept="image/*" 
-                  className="hidden" 
-                  ref={categoryImageInputRef}
-                  onChange={(e) => handleImageUpload(e, 'category')}
-                />
-              </label>
-            </div>
-            {newCategory.imageUrl && (
-              <div className="relative w-full h-32 rounded-2xl overflow-hidden border border-gray-200">
-                <img src={newCategory.imageUrl} alt="Category preview" className="w-full h-full object-cover" />
-                <button 
-                  type="button"
-                  onClick={() => setNewCategory({ ...newCategory, imageUrl: '' })}
-                  className="absolute top-2 right-2 p-1.5 bg-white rounded-xl shadow-ios-sm text-gray-500 hover:text-red-500"
+            {category && (
+              <>
+                <button
+                  onClick={() => updateDoc(doc(db, 'categories', category.id), { active: !category.active }).catch((e) => toast.error(friendlyError(e)))}
+                  className="p-2 rounded-xl hover:bg-gray-200 text-gray-600"
+                  title={category.active ? 'Hide category' : 'Show category'}
                 >
-                  <X size={16} />
+                  {category.active ? <Eye size={18} /> : <EyeOff size={18} />}
                 </button>
-              </div>
+                <button onClick={() => setCategoryMenu(category)} className="p-2 rounded-xl hover:bg-gray-200 text-gray-600" aria-label="Category options">
+                  <MoreHorizontal size={18} />
+                </button>
+              </>
             )}
-          </form>
+          </header>
 
-          <div className="space-y-2">
-            {categories.map(category => (
-              <div key={category.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-2xl border border-gray-100">
-                <div className="flex items-center gap-3">
-                  {category.imageUrl ? (
-                    <img src={category.imageUrl} alt={category.name} className="w-10 h-10 rounded-xl object-cover border border-gray-200" />
-                  ) : (
-                    <div className="w-10 h-10 rounded-xl bg-gray-200 flex items-center justify-center text-gray-400">
-                      <ImageIcon size={16} />
-                    </div>
-                  )}
-                  <span className={`font-medium ${category.active ? 'text-black' : 'text-gray-400 line-through'}`}>
-                    {category.name}
+          <ul className="divide-y divide-gray-100">
+            {list.map((item, index) => (
+              <li key={item.id} className="flex items-center gap-3 px-3 sm:px-4 py-2.5">
+                <button onClick={() => setEditing({ item, categoryId: item.categoryId })} className="flex items-center gap-3 min-w-0 flex-1 text-left">
+                  <span className="w-14 h-14 rounded-xl bg-gray-100 overflow-hidden shrink-0 flex items-center justify-center">
+                    {item.imageUrl ? <img src={item.imageUrl} alt="" className={`w-full h-full object-cover ${item.isSoldOut ? 'grayscale' : ''}`} /> : <ImageOff size={18} className="text-gray-300" />}
                   </span>
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={() => toggleCategoryActive(category.id, category.active)} className="text-xs font-bold px-3 py-1.5 rounded-xl bg-gray-200 hover:bg-gray-300 text-gray-700 transition-colors">
-                    {category.active ? 'Disable' : 'Enable'}
+                  <span className="min-w-0">
+                    <span className={`block font-semibold truncate ${item.active ? '' : 'text-gray-400 line-through'}`}>
+                      {item.isFeatured && <Star size={13} className="inline mr-1 -mt-0.5 fill-amber-400 text-amber-400" />}
+                      {item.name}
+                    </span>
+                    <span className="block text-sm text-gray-500">
+                      {formatMoney(item.basePrice)}
+                      {item.modifierGroups?.length ? ` · ${item.modifierGroups.length} option group${item.modifierGroups.length > 1 ? 's' : ''}` : ''}
+                      {item.soldCount ? ` · ${item.soldCount} sold` : ''}
+                    </span>
+                  </span>
+                </button>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => quickUpdate(item, { isSoldOut: !item.isSoldOut }, item.isSoldOut ? 'Back in stock' : 'Marked sold out')}
+                    className={`px-2.5 py-1.5 rounded-full text-xs font-bold ${item.isSoldOut ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}
+                    title="Toggle sold out"
+                  >
+                    {item.isSoldOut ? 'Sold out' : 'In stock'}
                   </button>
-                  <button onClick={() => deleteCategory(category.id)} className="text-red-500 hover:text-red-700 p-1.5">
-                    <Trash2 size={16} />
-                  </button>
+                  <div className="hidden sm:flex">
+                    <button onClick={() => moveItem(list, index, -1)} disabled={index === 0} className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-20" aria-label="Move up">
+                      <ArrowUp size={15} />
+                    </button>
+                    <button onClick={() => moveItem(list, index, 1)} disabled={index === list.length - 1} className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-20" aria-label="Move down">
+                      <ArrowDown size={15} />
+                    </button>
+                  </div>
                 </div>
-              </div>
+              </li>
+            ))}
+            {category && (
+              <li>
+                <button onClick={() => setEditing({ item: null, categoryId: category.id })} className="w-full px-4 py-3 text-sm font-semibold text-gray-600 hover:bg-gray-50 flex items-center gap-1.5">
+                  <Plus size={16} /> Add item to {category.name}
+                </button>
+              </li>
+            )}
+          </ul>
+        </section>
+      ))}
+
+      <ItemEditor
+        open={!!editing}
+        item={editing?.item || null}
+        defaultCategoryId={editing?.categoryId || ''}
+        categories={categories}
+        nextDisplayOrder={editing ? items.filter((i) => i.categoryId === editing.categoryId).length : 0}
+        onClose={() => setEditing(null)}
+      />
+
+      <Sheet open={!!categoryMenu} onClose={() => setCategoryMenu(null)} surface="admin" size="sm" title={categoryMenu?.name}>
+        {categoryMenu && (
+          <div className="p-3">
+            {[
+              { label: 'Rename / description', icon: Pencil, action: () => setCategoryForm({ category: categoryMenu, name: categoryMenu.name, description: categoryMenu.description || '' }) },
+              { label: 'Move up', icon: ArrowUp, action: () => moveCategory(categoryMenu, -1) },
+              { label: 'Move down', icon: ArrowDown, action: () => moveCategory(categoryMenu, 1) },
+              { label: 'Delete category', icon: Trash2, action: () => setDeleteCategory(categoryMenu), danger: true },
+            ].map(({ label, icon: Icon, action, danger }) => (
+              <button
+                key={label}
+                onClick={() => {
+                  setCategoryMenu(null);
+                  action();
+                }}
+                className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-semibold text-left hover:bg-gray-50 ${danger ? 'text-red-600' : ''}`}
+              >
+                <Icon size={18} /> {label}
+              </button>
             ))}
           </div>
-        </div>
+        )}
+      </Sheet>
 
-        {/* Items Panel */}
-        <div className="lg:col-span-2 bg-white p-6 sm:p-8 rounded-[2rem] shadow-ios-sm border border-gray-100 space-y-6">
-          <h2 className="text-2xl font-bold text-black">Menu Items</h2>
-
-          <form onSubmit={handleAddItem} className="flex flex-col gap-4 bg-gray-50 p-4 sm:p-6 rounded-[2rem] border border-gray-100">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <input 
-                type="text" 
-                value={newItem.name}
-                onChange={(e) => setNewItem({...newItem, name: e.target.value})}
-                placeholder="Item Name"
-                className="border border-gray-200 rounded-2xl px-4 py-3 focus:ring-2 focus:ring-black focus:border-black outline-none"
-                required
-              />
-              <input 
-                type="number" 
-                step="0.01"
-                value={newItem.basePrice || ''}
-                onChange={(e) => setNewItem({...newItem, basePrice: parseFloat(e.target.value)})}
-                placeholder="Price ($)"
-                className="border border-gray-200 rounded-2xl px-4 py-3 focus:ring-2 focus:ring-black focus:border-black outline-none"
-                required
-              />
-              <select 
-                value={newItem.categoryId}
-                onChange={(e) => setNewItem({...newItem, categoryId: e.target.value})}
-                className="border border-gray-200 rounded-2xl px-4 py-3 focus:ring-2 focus:ring-black focus:border-black outline-none bg-white"
-                required
-              >
-                <option value="" disabled>Select Category</option>
-                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-              <input 
-                type="number" 
-                value={newItem.preparationTime || ''}
-                onChange={(e) => setNewItem({...newItem, preparationTime: parseInt(e.target.value)})}
-                placeholder="Prep Time (mins)"
-                className="border border-gray-200 rounded-2xl px-4 py-3 focus:ring-2 focus:ring-black focus:border-black outline-none"
-              />
-              <input 
-                type="number" 
-                value={newItem.calories || ''}
-                onChange={(e) => setNewItem({...newItem, calories: parseInt(e.target.value)})}
-                placeholder="Calories"
-                className="border border-gray-200 rounded-2xl px-4 py-3 focus:ring-2 focus:ring-black focus:border-black outline-none"
-              />
-              <input 
-                type="text" 
-                value={newItem.description || ''}
-                onChange={(e) => setNewItem({...newItem, description: e.target.value})}
-                placeholder="Description (optional)"
-                className="border border-gray-200 rounded-2xl px-4 py-3 focus:ring-2 focus:ring-black focus:border-black outline-none md:col-span-1"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-3">
-                <label className="text-sm font-medium text-gray-700">Dietary Tags</label>
-                <div className="flex flex-wrap gap-2">
-                  {(['vegan', 'vegetarian', 'gluten-free', 'spicy'] as const).map(tag => (
-                    <button
-                      key={tag}
-                      type="button"
-                      onClick={() => toggleDietaryTag(tag)}
-                      className={`px-4 py-2 rounded-xl text-xs font-medium border transition-colors ${
-                        newItem.dietaryTags?.includes(tag)
-                          ? 'bg-black border-black text-[#EADDC5]'
-                          : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
-                      }`}
-                    >
-                      {tag.charAt(0).toUpperCase() + tag.slice(1)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <label className="text-sm font-medium text-gray-700">Item Image</label>
-                <label className="flex items-center gap-2 cursor-pointer bg-white hover:bg-gray-50 text-gray-700 px-4 py-3 rounded-2xl transition-colors border border-gray-200 w-full justify-center">
-                  <ImageIcon size={18} />
-                  <span className="text-sm font-medium">{newItem.imageUrl ? 'Change Image' : 'Upload Image'}</span>
-                  <input 
-                    type="file" 
-                    accept="image/*" 
-                    className="hidden" 
-                    ref={itemImageInputRef}
-                    onChange={(e) => handleImageUpload(e, 'item')}
-                  />
-                </label>
-                {newItem.imageUrl && (
-                  <div className="relative w-full h-24 rounded-2xl overflow-hidden border border-gray-200 mt-2">
-                    <img src={newItem.imageUrl} alt="Item preview" className="w-full h-full object-cover" />
-                    <button 
-                      type="button"
-                      onClick={() => setNewItem({ ...newItem, imageUrl: '' })}
-                      className="absolute top-2 right-2 p-1.5 bg-white rounded-xl shadow-ios-sm text-gray-500 hover:text-red-500"
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="space-y-3 pt-4 border-t border-gray-200">
-              <label className="text-sm font-medium text-gray-700">Modifiers (Coming Soon)</label>
-              <p className="text-xs text-gray-500">Advanced modifier management is being updated.</p>
-            </div>
-
-            <button type="submit" className="w-full bg-black text-[#EADDC5] py-4 rounded-2xl font-medium hover:bg-gray-900 transition-colors flex items-center justify-center gap-2 mt-2 shadow-ios-sm">
-              <Plus size={20} /> Add Item
-            </button>
-          </form>
-
-          <div className="space-y-6">
-            {categories.map(category => {
-              const categoryItems = items.filter(i => i.categoryId === category.id);
-              if (categoryItems.length === 0) return null;
-
-              return (
-                <div key={category.id} className="space-y-3">
-                  <h3 className="font-bold text-black border-b border-gray-100 pb-2">{category.name}</h3>
-                  <div className="grid grid-cols-1 gap-3">
-                    {categoryItems.map(item => (
-                      <div key={item.id} className="flex flex-col sm:flex-row sm:items-start justify-between p-4 bg-white rounded-2xl border border-gray-200 shadow-ios-sm gap-4">
-                        <div className="flex gap-3 sm:gap-4 w-full">
-                          {item.imageUrl ? (
-                            <img src={item.imageUrl} alt={item.name} className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl object-cover border border-gray-100 shrink-0" />
-                          ) : (
-                            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl bg-gray-100 flex items-center justify-center text-gray-400 shrink-0">
-                              <ImageIcon size={20} />
-                            </div>
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <span className={`font-bold block text-base sm:text-lg truncate ${item.active ? 'text-black' : 'text-gray-400 line-through'}`}>
-                              {item.name}
-                            </span>
-                            <div className="flex items-center gap-2 mt-1">
-                              <span className="text-black font-bold">${item.basePrice.toFixed(2)}</span>
-                              {item.preparationTime && (
-                                <span className="text-xs text-gray-500 bg-gray-100 px-2.5 py-1 rounded-xl whitespace-nowrap">
-                                  {item.preparationTime} mins
-                                </span>
-                              )}
-                            </div>
-                            {item.description && (
-                              <p className="text-xs sm:text-sm text-gray-500 mt-1.5 line-clamp-2">{item.description}</p>
-                            )}
-                            {item.dietaryTags && item.dietaryTags.length > 0 && (
-                              <div className="flex flex-wrap gap-1 mt-2">
-                                {item.dietaryTags.map(tag => (
-                                  <span key={tag} className="text-[10px] uppercase tracking-wider font-bold bg-gray-100 text-gray-600 px-2 py-1 rounded-md">
-                                    {tag}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex sm:flex-col gap-2 shrink-0 w-full sm:w-auto justify-end border-t sm:border-t-0 border-gray-100 pt-3 sm:pt-0 mt-2 sm:mt-0">
-                          <button onClick={() => toggleItemActive(item.id, item.active)} className="flex-1 sm:flex-none text-xs font-bold px-4 py-2 sm:py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors">
-                            {item.active ? 'Disable' : 'Enable'}
-                          </button>
-                          <button onClick={() => deleteItem(item.id)} className="flex-1 sm:flex-none text-xs font-bold px-4 py-2 sm:py-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 transition-colors">
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
+      <Sheet
+        open={!!categoryForm}
+        onClose={() => !busy && setCategoryForm(null)}
+        surface="admin"
+        size="sm"
+        title={categoryForm?.category ? 'Edit category' : 'New category'}
+        footer={
+          <button onClick={saveCategory} disabled={busy} className="w-full py-3 rounded-2xl bg-gray-900 text-white font-semibold flex items-center justify-center gap-2">
+            {busy && <Spinner size={16} />} Save
+          </button>
+        }
+      >
+        {categoryForm && (
+          <div className="p-5 space-y-4">
+            <Field label="Name">
+              <input autoFocus value={categoryForm.name} onChange={(e) => setCategoryForm({ ...categoryForm, name: e.target.value })} className={adminInput} maxLength={99} placeholder="e.g. Burgers" />
+            </Field>
+            <Field label="Description" hint="Optional. Shown under the category title on the menu.">
+              <input value={categoryForm.description} onChange={(e) => setCategoryForm({ ...categoryForm, description: e.target.value })} className={adminInput} maxLength={300} />
+            </Field>
           </div>
-        </div>
-      </div>
+        )}
+      </Sheet>
+
+      <ConfirmDialog
+        open={!!deleteCategory}
+        danger
+        busy={busy}
+        title={`Delete “${deleteCategory?.name}”?`}
+        message={
+          itemsInDeleting > 0
+            ? `It still contains ${itemsInDeleting} item${itemsInDeleting === 1 ? '' : 's'}. They will move to “Uncategorized” and disappear from the menu until you assign a new category. To just hide it, use the eye button instead.`
+            : 'This empty category will be removed.'
+        }
+        confirmLabel="Delete"
+        onCancel={() => setDeleteCategory(null)}
+        onConfirm={confirmDeleteCategory}
+      />
     </div>
   );
 };

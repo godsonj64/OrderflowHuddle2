@@ -1,57 +1,58 @@
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { Link } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
+import { Link, useLocation } from 'react-router-dom';
+
+const KEY = 'cookieConsent';
 
 export const CookieConsent: React.FC = () => {
   const [isVisible, setIsVisible] = useState(false);
+  const { pathname } = useLocation();
+  const isAdmin = pathname.startsWith('/admin') || pathname.startsWith('/driver');
 
   useEffect(() => {
-    const consent = localStorage.getItem('cookieConsent');
-    if (!consent) {
-      // Small delay to not overwhelm the user immediately on load
+    let choice: string | null = null;
+    try {
+      choice = localStorage.getItem(KEY);
+    } catch {
+      choice = 'unavailable';
+    }
+    if (!choice) {
       const timer = setTimeout(() => setIsVisible(true), 1500);
       return () => clearTimeout(timer);
     }
   }, []);
 
-  const acceptCookies = () => {
-    localStorage.setItem('cookieConsent', 'true');
+  const decide = (value: 'true' | 'declined') => {
+    try {
+      localStorage.setItem(KEY, value);
+    } catch {
+      // ignore
+    }
     setIsVisible(false);
   };
 
   return (
     <AnimatePresence>
-      {isVisible && (
+      {isVisible && !isAdmin && (
         <motion.div
           initial={{ y: 100, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: 100, opacity: 0 }}
-          className="fixed bottom-0 left-0 right-0 p-4 sm:p-6 z-[10000] pointer-events-none md:bottom-0 bottom-20"
+          className="fixed left-0 right-0 bottom-[calc(72px+env(safe-area-inset-bottom))] md:bottom-4 p-3 sm:p-4 z-[900] pointer-events-none"
         >
-          <div className="max-w-4xl mx-auto bg-black text-[#EADDC5] p-6 sm:p-8 rounded-[2rem] shadow-ios-lg pointer-events-auto flex flex-col sm:flex-row items-center justify-between gap-6 border border-gray-800">
-            <div className="flex-1 text-center sm:text-left">
-              <h3 className="text-lg font-bold mb-2">We value your privacy</h3>
-              <p className="text-gray-400 text-sm leading-relaxed">
-                We use cookies to enhance your browsing experience, serve personalized ads or content, and analyze our traffic. By clicking "Accept All", you consent to our use of cookies.
-              </p>
-              <div className="mt-2">
-                <Link to="/cookie-policy" className="text-gray-300 hover:text-[#EADDC5] text-sm underline underline-offset-4 transition-colors">
-                  Read our Cookie Policy
-                </Link>
-              </div>
-            </div>
-            <div className="flex gap-3 w-full sm:w-auto shrink-0">
-              <button
-                onClick={() => setIsVisible(false)}
-                className="flex-1 sm:flex-none px-6 py-3 rounded-2xl font-medium text-gray-300 bg-gray-900 hover:bg-gray-800 transition-colors text-sm"
-              >
+          <div className="max-w-3xl mx-auto bg-[#141a14] text-[#F2EBE1] p-4 sm:p-5 rounded-3xl shadow-ios-lg pointer-events-auto flex flex-col sm:flex-row items-center gap-4">
+            <p className="text-sm text-gray-300 leading-relaxed flex-1 text-center sm:text-left">
+              We use essential cookies and local storage to keep you signed in and remember your cart.{' '}
+              <Link to="/cookie-policy" className="underline underline-offset-4 text-white">
+                Cookie policy
+              </Link>
+            </p>
+            <div className="flex gap-2 w-full sm:w-auto shrink-0">
+              <button onClick={() => decide('declined')} className="flex-1 sm:flex-none px-5 py-2.5 rounded-2xl font-semibold text-gray-300 bg-white/10 hover:bg-white/15 text-sm">
                 Decline
               </button>
-              <button
-                onClick={acceptCookies}
-                className="flex-1 sm:flex-none px-6 py-3 rounded-2xl font-bold text-black bg-white hover:bg-gray-100 transition-colors shadow-ios-sm text-sm"
-              >
-                Accept All
+              <button onClick={() => decide('true')} className="flex-1 sm:flex-none px-5 py-2.5 rounded-2xl font-bold text-black bg-white hover:bg-gray-100 text-sm">
+                Accept
               </button>
             </div>
           </div>

@@ -1,11 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { Link, useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
+import { Award, Gift, LayoutDashboard, LogOut, Receipt, ShoppingBag, Truck } from 'lucide-react';
 import { db } from '../firebase';
-import { PromoCode, UserProfile } from '../types';
-import { X, Award, ShoppingBag, DollarSign, Tag, Gift } from 'lucide-react';
+import type { PromoCode, UserProfile } from '../types';
 import { useAuth } from '../context/AuthContext';
-import { Link } from 'react-router-dom';
+import { useCart } from '../context/CartContext';
+import { toDate } from '../lib/dates';
+import { friendlyError, reportError } from '../utils/errorHandling';
+import { Sheet, Spinner } from './ui';
 
 interface UserProfileDrawerProps {
   isOpen: boolean;
@@ -13,171 +17,196 @@ interface UserProfileDrawerProps {
   userProfile: UserProfile;
 }
 
+const inputCls = 'w-full px-3.5 py-2.5 rounded-btn border border-line bg-page text-ink placeholder:text-muted focus:ring-2 focus:ring-brand outline-none';
+
 export const UserProfileDrawer: React.FC<UserProfileDrawerProps> = ({ isOpen, onClose, userProfile }) => {
+  const { logout, updateContactInfo, isStaff, role } = useAuth();
+  const { setPromoCode } = useCart();
+  const navigate = useNavigate();
   const [promos, setPromos] = useState<PromoCode[]>([]);
   const [loadingPromos, setLoadingPromos] = useState(true);
-  const { logout } = useAuth();
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ name: '', phone: '', address: '' });
 
   useEffect(() => {
-    if (!isOpen || !userProfile) return;
-
-    const fetchPromos = async () => {
-      try {
-        const now = Timestamp.now();
-        const promoQuery = query(
-          collection(db, 'promos'),
-          where('active', '==', true),
-          where('expiresAt', '>', now)
-        );
-        const snapshot = await getDocs(promoQuery);
-        const activePromos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PromoCode));
-        
-        // Filter promos that are for everyone or assigned to this user
-        const applicablePromos = activePromos.filter(promo => {
-            if (promo.usedBy && promo.usedBy.includes(userProfile.uid)) return false;
-            if (promo.assignedTo && promo.assignedTo.length > 0) {
-                return promo.assignedTo.includes(userProfile.uid);
-            }
-            // Add segmentation rules (min orders, min spent)
-            if (promo.minOrders && (userProfile.totalOrders || 0) < promo.minOrders) return false;
-            if (promo.minSpent && (userProfile.totalSpent || 0) < promo.minSpent) return false;
-            
-            return true;
-        });
-        
-        setPromos(applicablePromos);
-      } catch (error) {
-        console.error('Error fetching promos:', error);
-      } finally {
-        setLoadingPromos(false);
-      }
-    };
-
-    fetchPromos();
+    if (!isOpen) return;
+    setForm({ name: userProfile.name || '', phone: userProfile.phone || '', address: userProfile.savedAddresses?.[0] || '' });
   }, [isOpen, userProfile]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    setLoadingPromos(true);
+    // Single-field query (no composite index needed); everything else is filtered here.
+    getDocs(query(collection(db, 'promos'), where('active', '==', true)))
+      .then((snapshot) => {
+        if (cancelled) return;
+        const now = Date.now();
+        const mine = snapshot.docs
+          .map((d) => ({ id: d.id, ...d.data() }) as PromoCode)
+          .filter((p) => {
+            const expires = toDate(p.expiresAt);
+            if (expires && expires.getTime() < now) return false;
+            if (p.usageLimit && (p.usedCount || 0) >= p.usageLimit) return false;
+            if (p.usedBy?.includes(userProfile.uid)) return false;
+            if (p.assignedTo?.length) return p.assignedTo.includes(userProfile.uid);
+            if (p.minOrders && (userProfile.totalOrders || 0) < p.minOrders) return false;
+            if (p.minSpent && (userProfile.totalSpent || 0) < p.minSpent) return false;
+            return true;
+          });
+        setPromos(mine);
+      })
+      .catch((err) => reportError(err, 'promo-inbox', { toast: false }))
+      .finally(() => !cancelled && setLoadingPromos(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, userProfile.uid, userProfile.totalOrders, userProfile.totalSpent]);
+
+  const saveContact = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const addresses = [form.address.trim(), ...(userProfile.savedAddresses || []).filter((a) => a !== form.address.trim())]
+        .filter(Boolean)
+        .slice(0, 5);
+      await updateContactInfo({ name: form.name.trim().slice(0, 100), phone: form.phone.trim().slice(0, 20), savedAddresses: addresses });
+      toast.success('Details saved');
+      setEditing(false);
+    } catch (err) {
+      toast.error(friendlyError(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const usePromo = (code: string) => {
+    setPromoCode(code);
+    toast.success(`${code} will be applied at checkout`);
+    onClose();
+    navigate('/cart');
+  };
+
+  const initial = (userProfile.name || userProfile.email || '?').charAt(0).toUpperCase();
+
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[10001]"
-          />
-          <motion.div
-            initial={{ y: '100%' }}
-            animate={{ y: 0 }}
-            exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="fixed bottom-0 left-0 right-0 max-h-[85vh] bg-white rounded-t-[2.5rem] shadow-[0_-8px_30px_rgb(0,0,0,0.12)] z-[10002] overflow-hidden flex flex-col md:max-w-md md:mx-auto md:bottom-24 md:rounded-3xl md:shadow-2xl"
-          >
-            <div className="flex items-center justify-between p-6 border-b border-gray-100">
-              <h2 className="text-2xl font-bold font-sans">Your Profile</h2>
-              <button
-                onClick={onClose}
-                className="p-2 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors"
-              >
-                <X size={20} />
+    <Sheet open={isOpen} onClose={onClose} title="Your account" size="sm">
+      <div className="p-5 space-y-6">
+        <div className="flex items-center gap-4">
+          <div className="w-14 h-14 rounded-full bg-brand text-on-brand flex items-center justify-center text-2xl font-bold shrink-0">{initial}</div>
+          <div className="min-w-0">
+            <h3 className="text-lg font-bold truncate">{userProfile.name || 'Hello!'}</h3>
+            <p className="text-sm text-muted truncate">{userProfile.email}</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-card bg-soft p-4">
+            <Award size={18} className="text-brand mb-2" />
+            <div className="text-2xl font-extrabold">{userProfile.loyaltyPoints || 0}</div>
+            <div className="text-xs text-muted">Reward points</div>
+          </div>
+          <div className="rounded-card bg-soft p-4">
+            <ShoppingBag size={18} className="text-brand mb-2" />
+            <div className="text-2xl font-extrabold">{userProfile.totalOrders || 0}</div>
+            <div className="text-xs text-muted">Orders</div>
+          </div>
+        </div>
+
+        <section>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-bold">Contact details</h3>
+            {!editing && (
+              <button onClick={() => setEditing(true)} className="text-sm font-semibold text-brand">
+                Edit
               </button>
+            )}
+          </div>
+          {editing ? (
+            <form onSubmit={saveContact} className="space-y-2.5">
+              <input className={inputCls} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Name" autoComplete="name" maxLength={100} />
+              <input className={inputCls} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Phone" type="tel" autoComplete="tel" maxLength={20} />
+              <input className={inputCls} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Delivery address" autoComplete="street-address" maxLength={300} />
+              <div className="flex gap-2 pt-1">
+                <button type="button" onClick={() => setEditing(false)} className="flex-1 py-2.5 rounded-btn bg-soft font-semibold">
+                  Cancel
+                </button>
+                <button type="submit" disabled={saving} className="flex-1 py-2.5 rounded-btn bg-brand text-on-brand font-semibold flex items-center justify-center gap-2 disabled:opacity-60">
+                  {saving && <Spinner size={16} />} Save
+                </button>
+              </div>
+            </form>
+          ) : (
+            <div className="text-sm rounded-card border border-line divide-y divide-line">
+              <div className="px-4 py-2.5 flex justify-between gap-3">
+                <span className="text-muted">Phone</span>
+                <span className="truncate">{userProfile.phone || '—'}</span>
+              </div>
+              <div className="px-4 py-2.5 flex justify-between gap-3">
+                <span className="text-muted">Address</span>
+                <span className="truncate text-right">{userProfile.savedAddresses?.[0] || '—'}</span>
+              </div>
             </div>
-            
-            <div className="overflow-y-auto p-6 flex flex-col gap-6">
-                <div className="flex items-center gap-4">
-                    <div className="w-16 h-16 rounded-full bg-primary/10 text-primary flex items-center justify-center text-2xl font-bold">
-                        {userProfile.name?.charAt(0) || 'U'}
-                    </div>
-                    <div>
-                        <h3 className="text-xl font-bold">{userProfile.name || 'User'}</h3>
-                        <p className="text-gray-500 text-sm">{userProfile.email}</p>
-                    </div>
-                </div>
+          )}
+        </section>
 
-                <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100 flex flex-col gap-2">
-                        <div className="w-8 h-8 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center">
-                            <Award size={18} />
-                        </div>
-                        <span className="text-sm text-gray-500 font-medium">Points</span>
-                        <span className="text-2xl font-bold text-black">{userProfile.loyaltyPoints || 0}</span>
-                    </div>
-                    <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100 flex flex-col gap-2">
-                        <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center">
-                            <ShoppingBag size={18} />
-                        </div>
-                        <span className="text-sm text-gray-500 font-medium">Orders</span>
-                        <span className="text-2xl font-bold text-black">{userProfile.totalOrders || 0}</span>
-                    </div>
-                </div>
-
-                <div>
-                    <h3 className="font-bold text-lg mb-3 flex items-center gap-2">
-                        <Gift size={20} className="text-primary"/> Promo Inbox
-                    </h3>
-                    {loadingPromos ? (
-                        <div className="flex justify-center p-4">
-                            <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                        </div>
-                    ) : promos.length > 0 ? (
-                        <div className="flex flex-col gap-3">
-                            {promos.map(promo => (
-                                <div key={promo.id} className="bg-primary/5 border border-primary/20 rounded-2xl p-4 flex justify-between items-center relative overflow-hidden">
-                                     <div className="absolute top-0 right-0 w-16 h-16 bg-primary/10 rounded-bl-full -z-10" />
-                                     <div>
-                                        <div className="font-mono font-bold text-lg text-primary">{promo.id}</div>
-                                        <div className="text-sm text-gray-600">
-                                            {promo.discountType === 'percentage' ? `${promo.discountValue}% OFF` : `$${promo.discountValue} OFF`}
-                                        </div>
-                                     </div>
-                                     <button 
-                                        className="text-xs font-bold bg-primary text-white px-3 py-1.5 rounded-full hover:bg-black transition-colors"
-                                        onClick={() => {
-                                            navigator.clipboard.writeText(promo.id);
-                                            alert("Copied to clipboard!");
-                                        }}
-                                     >
-                                         Copy
-                                     </button>
-                                </div>
-                            ))}
-                        </div>
-                    ) : (
-                        <p className="text-sm text-gray-500 bg-gray-50 p-4 rounded-xl text-center border border-gray-100">
-                            No active promos right now. Check back later!
-                        </p>
-                    )}
-                </div>
-
-                <div className="pt-4 border-t border-gray-100 space-y-3">
-                    <Link 
-                        to="/my-orders" 
-                        onClick={onClose}
-                        className="w-full text-center block px-6 py-3 bg-gray-100 hover:bg-gray-200 text-black font-semibold rounded-2xl transition-colors"
-                    >
-                        View Order History
-                    </Link>
-                    {['admin', 'restaurant_owner', 'manager'].includes(userProfile.role) && (
-                        <Link 
-                            to="/admin" 
-                            onClick={onClose}
-                            className="w-full text-center block px-6 py-3 bg-primary hover:bg-primary/90 text-white font-semibold rounded-2xl transition-colors"
-                        >
-                            Admin Dashboard
-                        </Link>
-                    )}
-                    <button 
-                        onClick={() => { onClose(); logout(); }}
-                        className="w-full px-6 py-3 text-red-500 hover:bg-red-50 font-semibold rounded-2xl transition-colors"
-                    >
-                        Sign Out
-                    </button>
-                </div>
+        <section>
+          <h3 className="font-bold mb-2 flex items-center gap-2">
+            <Gift size={18} className="text-brand" /> Your offers
+          </h3>
+          {loadingPromos ? (
+            <div className="flex justify-center py-4 text-muted">
+              <Spinner />
             </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
+          ) : promos.length ? (
+            <div className="space-y-2">
+              {promos.map((promo) => (
+                <div key={promo.id} className="rounded-card border border-dashed border-brand/40 bg-brand/5 p-3.5 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-mono font-bold text-brand">{promo.id}</div>
+                    <div className="text-xs text-muted">
+                      {promo.discountType === 'percentage' ? `${promo.discountValue}% off` : `$${promo.discountValue.toFixed(2)} off`}
+                      {promo.minSubtotal ? ` orders over $${promo.minSubtotal.toFixed(2)}` : ''}
+                      {promo.description ? ` · ${promo.description}` : ''}
+                    </div>
+                  </div>
+                  <button onClick={() => usePromo(promo.id)} className="shrink-0 text-xs font-bold bg-brand text-on-brand px-3 py-2 rounded-btn">
+                    Use
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted bg-soft rounded-card p-4 text-center">No offers right now. Check back soon!</p>
+          )}
+        </section>
+
+        <div className="space-y-2 pt-2 border-t border-line">
+          <Link to="/my-orders" onClick={onClose} className="flex items-center gap-3 px-4 py-3 rounded-btn bg-soft font-semibold">
+            <Receipt size={18} /> Order history
+          </Link>
+          {isStaff && (
+            <Link to="/admin" onClick={onClose} className="flex items-center gap-3 px-4 py-3 rounded-btn bg-brand text-on-brand font-semibold">
+              <LayoutDashboard size={18} /> Restaurant dashboard
+            </Link>
+          )}
+          {role === 'driver' && (
+            <Link to="/driver" onClick={onClose} className="flex items-center gap-3 px-4 py-3 rounded-btn bg-brand text-on-brand font-semibold">
+              <Truck size={18} /> Driver dashboard
+            </Link>
+          )}
+          <button
+            onClick={() => {
+              onClose();
+              logout();
+            }}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-btn text-red-600 font-semibold hover:bg-red-50"
+          >
+            <LogOut size={18} /> Sign out
+          </button>
+        </div>
+      </div>
+    </Sheet>
   );
 };

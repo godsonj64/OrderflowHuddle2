@@ -1,150 +1,91 @@
-import React, { useEffect, useState } from 'react';
-import { useStripe } from '@stripe/react-stripe-js';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { CheckCircle, Loader2, XCircle } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
-import { doc, getDoc, increment, arrayUnion, serverTimestamp, writeBatch } from 'firebase/firestore';
-import { db } from '../firebase';
+import { api } from '../lib/api';
 
+/**
+ * Landing page after a redirect-based payment (3-D Secure, bank redirects, ...).
+ * The server verifies the payment with Stripe, then we show the order tracker.
+ */
 export const OrderSuccess: React.FC = () => {
-  const stripe = useStripe();
-  const [status, setStatus] = useState<'loading' | 'success' | 'failed'>('loading');
-  const [message, setMessage] = useState('');
-  const navigate = useNavigate();
   const location = useLocation();
+  const navigate = useNavigate();
   const { clearCart } = useCart();
-  const orderId = location.state?.orderId || new URLSearchParams(window.location.search).get('orderId');
+  const { user, loading } = useAuth();
+  const [state, setState] = useState<'checking' | 'processing' | 'failed'>('checking');
+  const ran = useRef(false);
+
+  const params = new URLSearchParams(location.search);
+  const orderId = (location.state as { orderId?: string } | null)?.orderId || params.get('orderId');
+  const redirectStatus = params.get('redirect_status');
 
   useEffect(() => {
-    if (!stripe) {
+    if (loading || ran.current) return;
+    if (!orderId) {
+      navigate('/', { replace: true });
+      return;
+    }
+    if (!user) return; // wait for the session to be restored after the redirect
+    ran.current = true;
+
+    if (redirectStatus === 'failed') {
+      setState('failed');
       return;
     }
 
-    const clientSecret = new URLSearchParams(window.location.search).get(
-      'payment_intent_client_secret'
-    );
-
-    if (!clientSecret) {
-      if (location.state?.orderId) {
-        // Direct navigation from Cart after successful payment without redirect
-        setStatus('success');
-        setMessage('Payment succeeded! Your order is being processed.');
-      } else {
-        setStatus('failed');
-        setMessage('No payment intent found.');
-      }
-      return;
-    }
-
-    stripe.retrievePaymentIntent(clientSecret).then(async ({ paymentIntent }) => {
-      switch (paymentIntent?.status) {
-        case 'succeeded':
-          setStatus('success');
-          setMessage('Payment succeeded! Your order is being processed.');
-          clearCart();
-          if (orderId) {
-            try {
-              const response = await fetch('/api/confirm-payment', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ paymentIntentId: paymentIntent.id, orderId }),
-              });
-              
-              if (response.ok) {
-                const orderRef = doc(db, 'orders', orderId);
-                const orderSnap = await getDoc(orderRef);
-                
-                if (orderSnap.exists()) {
-                  const orderData = orderSnap.data();
-                  
-                  // Only update if it hasn't been updated yet
-                  if (orderData.status === 'payment_pending') {
-                    const batch = writeBatch(db);
-
-                    batch.update(orderRef, {
-                      status: 'new',
-                      paymentStatus: 'paid',
-                      paymentIntentId: paymentIntent.id,
-                      updatedAt: serverTimestamp(),
-                    });
-
-                    if (orderData.promoCode) {
-                      batch.update(doc(db, 'promos', orderData.promoCode), {
-                        usedCount: increment(1),
-                        usedBy: arrayUnion(orderData.customerId)
-                      });
-                    }
-
-                    batch.update(doc(db, 'users', orderData.customerId), {
-                      totalOrders: increment(1),
-                      totalSpent: increment(orderData.total),
-                      lastOrderDate: serverTimestamp()
-                    });
-
-                    await batch.commit();
-                  }
-                }
-              } else {
-                console.error('Failed to confirm payment on server');
-              }
-            } catch (error) {
-              console.error('Failed to update order status:', error);
-            }
+    api
+      .confirmPayment(orderId)
+      .then((res) => {
+        if (res.paid) {
+          try {
+            sessionStorage.removeItem('pending_checkout_order');
+          } catch {
+            // ignore
           }
-          break;
-        case 'processing':
-          setStatus('loading');
-          setMessage('Your payment is processing.');
-          break;
-        case 'requires_payment_method':
-          setStatus('failed');
-          setMessage('Your payment was not successful, please try again.');
-          break;
-        default:
-          setStatus('failed');
-          setMessage('Something went wrong.');
-          break;
-      }
-    });
-  }, [stripe, clearCart]);
+          clearCart();
+          toast.success('Payment received. Thank you!');
+          navigate(`/order/${orderId}`, { replace: true, state: { placed: true } });
+        } else if (res.stripeStatus === 'processing') {
+          setState('processing');
+        } else {
+          setState('failed');
+        }
+      })
+      .catch(() => setState('failed'));
+  }, [loading, user, orderId, redirectStatus, clearCart, navigate]);
 
   return (
     <div className="min-h-[60vh] flex items-center justify-center">
-      <div className="bg-white p-6 sm:p-8 rounded-[2rem] shadow-ios-lg border border-gray-100 max-w-md w-full text-center">
-        {status === 'loading' && (
-          <div className="flex flex-col items-center">
-            <Loader2 className="animate-spin text-emerald-600 mb-4 sm:mb-6" size={48} />
-            <h2 className="text-2xl sm:text-3xl font-bold text-black mb-2 sm:mb-3">Processing Payment</h2>
-            <p className="text-gray-500 text-base sm:text-lg">{message}</p>
-          </div>
+      <div className="bg-card p-8 rounded-card border border-line max-w-md w-full text-center">
+        {state === 'checking' && (
+          <>
+            <Loader2 className="animate-spin mx-auto mb-4 text-brand" size={44} />
+            <h1 className="text-2xl font-extrabold mb-2">Confirming your payment…</h1>
+            <p className="text-muted">This only takes a moment.</p>
+          </>
         )}
-
-        {status === 'success' && (
-          <div className="flex flex-col items-center">
-            <CheckCircle className="text-emerald-500 mb-4 sm:mb-6" size={64} />
-            <h2 className="text-2xl sm:text-3xl font-bold text-black mb-2 sm:mb-3">Order Confirmed!</h2>
-            <p className="text-gray-500 mb-6 sm:mb-8 text-base sm:text-lg">{message}</p>
-            <button
-              onClick={() => navigate(orderId ? `/order/${orderId}` : '/')}
-              className="bg-primary text-white px-6 sm:px-8 py-3.5 sm:py-4 rounded-full font-bold hover:bg-primary-dark transition-all shadow-sm w-full text-sm sm:text-base"
-            >
-              {orderId ? 'Track Order' : 'Return Home'}
-            </button>
-          </div>
+        {state === 'processing' && (
+          <>
+            <CheckCircle className="mx-auto mb-4 text-amber-500" size={52} />
+            <h1 className="text-2xl font-extrabold mb-2">Payment processing</h1>
+            <p className="text-muted mb-6">Your bank is still processing the payment. We'll start your order as soon as it clears.</p>
+            <Link to={`/order/${orderId}`} className="block bg-brand text-on-brand py-3.5 rounded-btn font-bold">
+              View order
+            </Link>
+          </>
         )}
-
-        {status === 'failed' && (
-          <div className="flex flex-col items-center">
-            <XCircle className="text-red-500 mb-4 sm:mb-6" size={64} />
-            <h2 className="text-2xl sm:text-3xl font-bold text-black mb-2 sm:mb-3">Payment Failed</h2>
-            <p className="text-gray-500 mb-6 sm:mb-8 text-base sm:text-lg">{message}</p>
-            <button
-              onClick={() => navigate('/cart')}
-              className="bg-primary text-white px-6 sm:px-8 py-3.5 sm:py-4 rounded-full font-bold hover:bg-primary-dark transition-all shadow-sm w-full text-sm sm:text-base"
-            >
-              Return to Cart
-            </button>
-          </div>
+        {state === 'failed' && (
+          <>
+            <XCircle className="mx-auto mb-4 text-red-500" size={52} />
+            <h1 className="text-2xl font-extrabold mb-2">Payment not completed</h1>
+            <p className="text-muted mb-6">Your card was not charged. You can try again from your cart.</p>
+            <Link to="/cart" className="block bg-brand text-on-brand py-3.5 rounded-btn font-bold">
+              Back to cart
+            </Link>
+          </>
         )}
       </div>
     </div>

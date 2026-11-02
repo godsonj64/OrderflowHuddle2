@@ -1,187 +1,233 @@
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { X, Clock, Plus, Check } from 'lucide-react';
-import { MenuItem, Modifier } from '../types';
+import React, { useEffect, useMemo, useState } from 'react';
+import toast from 'react-hot-toast';
+import { Check, Minus, Plus } from 'lucide-react';
+import type { MenuItem, ModifierGroup } from '../types';
 import { useCart } from '../context/CartContext';
+import { useStore } from '../context/StoreContext';
+import { describeGroupRule, groupRule, MAX_LINE_QUANTITY, resolveSelections, unitPriceCents, type ModifierSelection } from '../lib/pricing';
+import { formatMoney, fromCents } from '../lib/money';
+import { DietaryBadges, ItemMeta } from './MenuItemCard';
+import { Sheet } from './ui';
 
 interface DishDetailsDrawerProps {
-  isOpen: boolean;
-  onClose: () => void;
   item: MenuItem | null;
-  restaurantName: string;
+  onClose: () => void;
+  canAdd: boolean;
 }
 
-export const DishDetailsDrawer: React.FC<DishDetailsDrawerProps> = ({ isOpen, onClose, item, restaurantName }) => {
-  const [selectedModifiers, setSelectedModifiers] = useState<Record<string, Modifier[]>>({});
-  const [added, setAdded] = useState(false);
-  const { addToCart } = useCart();
+type Picks = Record<string, string[]>; // groupId -> modifier ids
 
-  if (!item) return null;
+function GroupPicker({
+  group,
+  picked,
+  onChange,
+  showError,
+}: {
+  group: ModifierGroup;
+  picked: string[];
+  onChange: (ids: string[]) => void;
+  showError: boolean;
+}) {
+  const { min, max } = groupRule(group);
+  const single = max === 1;
+  const satisfied = picked.length >= min;
 
-  const toggleModifier = (modifier: Modifier) => {
-    setSelectedModifiers(prev => {
-      const current = prev[item.id] || [];
-      const exists = current.find(m => m.id === modifier.id);
-      if (exists) {
-        return { ...prev, [item.id]: current.filter(m => m.id !== modifier.id) };
-      } else {
-        return { ...prev, [item.id]: [...current, modifier] };
-      }
-    });
+  const toggle = (id: string) => {
+    if (single) return onChange(picked[0] === id && min === 0 ? [] : [id]);
+    if (picked.includes(id)) return onChange(picked.filter((p) => p !== id));
+    if (picked.length >= max) return;
+    onChange([...picked, id]);
   };
-
-  const handleAddToCart = () => {
-    const modifiers = selectedModifiers[item.id] || [];
-    const modifiersPrice = modifiers.reduce((sum, m) => sum + m.price, 0);
-    addToCart({ 
-      itemId: item.id, 
-      name: item.name, 
-      price: item.basePrice + modifiersPrice, 
-      quantity: 1,
-      selectedModifiers: modifiers
-    });
-    
-    setSelectedModifiers({});
-    
-    setAdded(true);
-    setTimeout(() => {
-      setAdded(false);
-      onClose();
-    }, 1000);
-  };
-
-  const currentModifiers = selectedModifiers[item.id] || [];
-  const totalPrice = item.basePrice + currentModifiers.reduce((sum, m) => sum + m.price, 0);
 
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[10001]"
-          />
-          <motion.div
-            initial={{ y: '100%' }}
-            animate={{ y: 0 }}
-            exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="fixed bottom-0 left-0 right-0 max-h-[90vh] bg-white rounded-t-[20px] shadow-[0_-8px_30px_rgb(0,0,0,0.12)] z-[10002] flex flex-col md:max-w-xl md:mx-auto md:bottom-12 md:rounded-2xl md:shadow-2xl"
-          >
-            {item.imageUrl && (
-              <div className="relative w-full h-48 sm:h-64 md:h-72 shrink-0">
-                <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover rounded-t-[20px] md:rounded-t-2xl" />
-                <button
-                  onClick={onClose}
-                  className="absolute top-4 right-4 p-2 bg-white/50 backdrop-blur-md hover:bg-white/80 rounded-full transition-colors z-10"
-                >
-                  <X size={20} className="text-black" />
-                </button>
-              </div>
-            )}
-            
-            {!item.imageUrl && (
-               <div className="flex items-center justify-between p-6 border-b border-gray-100 shrink-0">
-                <h2 className="text-2xl font-bold font-sans">Item Details</h2>
-                <button
-                  onClick={onClose}
-                  className="p-2 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors"
-                >
-                  <X size={20} />
-                </button>
-              </div>
-            )}
-
-            <div className="overflow-y-auto p-6 flex flex-col gap-6 hide-scrollbar flex-grow">
-              <div>
-                <div className="flex justify-between items-start mb-2">
-                  <h2 className="text-2xl sm:text-3xl font-extrabold text-black leading-tight">{item.name}</h2>
-                  <span className="text-xl sm:text-2xl font-extrabold text-black tracking-tight">${totalPrice.toFixed(2)}</span>
-                </div>
-                <p className="text-sm text-primary font-medium mb-3">{restaurantName}</p>
-                {item.description && (
-                  <p className="text-gray-600 text-sm sm:text-base leading-relaxed mb-4">
-                    {item.description}
-                  </p>
-                )}
-                
-                <div className="flex items-center gap-4 border-y border-gray-100 py-3 mb-2">
-                  {item.preparationTime && (
-                    <div className="flex items-center gap-1.5 text-gray-500 text-sm font-medium">
-                      <Clock size={16} /> 
-                      <span>{item.preparationTime} mins</span>
-                    </div>
-                  )}
-                  {item.preparationTime && item.calories && <span className="text-gray-300">•</span>}
-                  {item.calories && (
-                    <div className="flex items-center gap-1.5 text-gray-500 text-sm font-medium">
-                      <span>{item.calories} kcal</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {item.modifierGroups && item.modifierGroups.length > 0 && (
-                <div className="flex flex-col gap-6">
-                  {item.modifierGroups.map(group => (
-                    <div key={group.id} className="bg-gray-50 rounded-xl p-4 border border-gray-100">
-                      <div className="flex items-baseline justify-between mb-3">
-                        <h3 className="font-bold text-black text-lg">{group.name}</h3>
-                        <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">{group.required ? 'Required' : 'Optional'}</span>
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        {group.modifiers.map(modifier => {
-                          const isSelected = currentModifiers.some(m => m.id === modifier.id);
-                          return (
-                            <button
-                              key={modifier.id}
-                              onClick={() => toggleModifier(modifier)}
-                              className={`flex justify-between items-center px-4 py-3 rounded-xl border transition-all ${
-                                isSelected 
-                                  ? 'bg-white border-black ring-1 ring-black shadow-sm' 
-                                  : 'bg-white border-gray-200 hover:border-gray-300'
-                              }`}
-                            >
-                              <span className={`font-medium ${isSelected ? 'text-black' : 'text-gray-700'}`}>{modifier.name}</span>
-                              <span className={`font-semibold ${isSelected ? 'text-black' : 'text-gray-500'}`}>+${modifier.price.toFixed(2)}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="p-4 sm:p-6 border-t border-gray-100 shrink-0 bg-white md:rounded-b-2xl">
-              <button
-                onClick={handleAddToCart}
-                className={`w-full py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-2 transition-all active:scale-[0.98] ${
-                  added 
-                    ? 'bg-primary text-white scale-[0.98]' 
-                    : 'bg-black text-white hover:bg-gray-800 active:bg-gray-900 shadow-lg shadow-black/20'
+    <fieldset id={`group-${group.id}`} className={`rounded-card border p-4 transition ${showError && !satisfied ? 'border-red-400 bg-red-50/40' : 'border-line'}`}>
+      <legend className="sr-only">{group.name}</legend>
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div>
+          <h3 className="font-bold">{group.name}</h3>
+          <p className={`text-xs ${showError && !satisfied ? 'text-red-600 font-semibold' : 'text-muted'}`}>{describeGroupRule(group)}</p>
+        </div>
+        {min > 0 && (
+          <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full ${satisfied ? 'bg-emerald-50 text-emerald-700' : 'bg-soft text-muted'}`}>
+            {satisfied ? 'Done' : 'Required'}
+          </span>
+        )}
+      </div>
+      <div className="space-y-2">
+        {group.modifiers.map((mod) => {
+          const checked = picked.includes(mod.id);
+          const disabled = !checked && !single && picked.length >= max;
+          return (
+            <button
+              key={mod.id}
+              type="button"
+              role={single ? 'radio' : 'checkbox'}
+              aria-checked={checked}
+              disabled={disabled}
+              onClick={() => toggle(mod.id)}
+              className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-btn border text-left transition disabled:opacity-40 ${
+                checked ? 'border-brand ring-1 ring-brand bg-brand/5' : 'border-line hover:bg-soft'
+              }`}
+            >
+              <span
+                className={`w-5 h-5 shrink-0 flex items-center justify-center border-2 ${single ? 'rounded-full' : 'rounded-md'} ${
+                  checked ? 'bg-brand border-brand text-on-brand' : 'border-line'
                 }`}
               >
-                {added ? (
-                  <>
-                    <Check size={24} />
-                    Added to Cart
-                  </>
-                ) : (
-                  <>
-                    <Plus size={24} />
-                    Add to Cart - ${totalPrice.toFixed(2)}
-                  </>
-                )}
+                {checked && (single ? <span className="w-2 h-2 rounded-full bg-on-brand" /> : <Check size={13} strokeWidth={3} />)}
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block font-medium text-sm">{mod.name}</span>
+                {mod.allergenTags?.length ? <span className="block text-[11px] text-muted">Contains: {mod.allergenTags.join(', ')}</span> : null}
+              </span>
+              {mod.price > 0 && <span className="text-sm font-semibold text-muted">+{formatMoney(mod.price)}</span>}
+            </button>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
+export const DishDetailsDrawer: React.FC<DishDetailsDrawerProps> = ({ item, onClose, canAdd }) => {
+  const { addToCart } = useCart();
+  const { theme, catalog } = useStore();
+  const [picks, setPicks] = useState<Picks>({});
+  const [quantity, setQuantity] = useState(1);
+  const [notes, setNotes] = useState('');
+  const [showErrors, setShowErrors] = useState(false);
+
+  // Always show the live version of the item (price or availability may change while open).
+  const live = item ? catalog.items.get(item.id) || item : null;
+
+  useEffect(() => {
+    setPicks({});
+    setQuantity(1);
+    setNotes('');
+    setShowErrors(false);
+  }, [item?.id]);
+
+  const selections: ModifierSelection[] = useMemo(
+    () => Object.entries(picks).flatMap(([groupId, ids]) => ids.map((modifierId) => ({ groupId, modifierId }))),
+    [picks],
+  );
+  const resolved = useMemo(() => (live ? resolveSelections(live, selections) : { modifiers: [], errors: [] }), [live, selections]);
+  const unitCents = live ? unitPriceCents(live, resolved.modifiers) : 0;
+
+  const handleAdd = () => {
+    if (!live) return;
+    if (resolved.errors.length) {
+      setShowErrors(true);
+      const firstMissing = (live.modifierGroups || []).find((g) => (picks[g.id]?.length || 0) < groupRule(g).min);
+      if (firstMissing) document.getElementById(`group-${firstMissing.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    addToCart({
+      itemId: live.id,
+      name: live.name,
+      price: fromCents(unitCents),
+      quantity,
+      selectedModifiers: resolved.modifiers,
+      ...(notes.trim() ? { prepNotes: notes.trim().slice(0, 200) } : {}),
+    });
+    toast.success(`Added ${quantity > 1 ? `${quantity} × ` : ''}${live.name}`, { duration: 1500 });
+    onClose();
+  };
+
+  const disabledReason = !live ? '' : live.isSoldOut ? 'Sold out' : !canAdd ? 'Ordering is closed' : '';
+
+  return (
+    <Sheet
+      open={!!item}
+      onClose={onClose}
+      hideHeader
+      size="md"
+      footer={
+        live && (
+          <div className="flex items-center gap-3">
+            <div className="flex items-center rounded-btn border border-line">
+              <button type="button" onClick={() => setQuantity((q) => Math.max(1, q - 1))} className="p-3 disabled:opacity-30" disabled={quantity <= 1} aria-label="Decrease quantity">
+                <Minus size={16} />
+              </button>
+              <span className="w-6 text-center font-bold" aria-live="polite">
+                {quantity}
+              </span>
+              <button
+                type="button"
+                onClick={() => setQuantity((q) => Math.min(MAX_LINE_QUANTITY, q + 1))}
+                className="p-3 disabled:opacity-30"
+                disabled={quantity >= MAX_LINE_QUANTITY}
+                aria-label="Increase quantity"
+              >
+                <Plus size={16} />
               </button>
             </div>
-          </motion.div>
-        </>
+            <button
+              type="button"
+              onClick={handleAdd}
+              disabled={!!disabledReason}
+              className="flex-1 bg-brand text-on-brand py-3.5 rounded-btn font-bold flex items-center justify-between px-5 transition active:scale-[0.98] disabled:opacity-50"
+            >
+              <span>{disabledReason || 'Add to cart'}</span>
+              {!disabledReason && <span>{formatMoney(fromCents(unitCents * quantity))}</span>}
+            </button>
+          </div>
+        )
+      }
+    >
+      {live && (
+        <div>
+          {live.imageUrl ? (
+            <div className="relative h-56 sm:h-72 bg-soft">
+              <img src={live.imageUrl} alt={live.name} className={`w-full h-full object-cover ${live.isSoldOut ? 'grayscale' : ''}`} />
+              <button onClick={onClose} className="absolute top-3 right-3 w-9 h-9 rounded-full bg-black/45 text-white backdrop-blur flex items-center justify-center" aria-label="Close">
+                ✕
+              </button>
+            </div>
+          ) : (
+            <div className="flex justify-end p-3 pb-0">
+              <button onClick={onClose} className="w-9 h-9 rounded-full bg-soft flex items-center justify-center" aria-label="Close">
+                ✕
+              </button>
+            </div>
+          )}
+
+          <div className="p-5 space-y-5">
+            <div className="space-y-2">
+              <div className="flex items-start justify-between gap-4">
+                <h2 className="font-display text-2xl font-extrabold leading-tight">{live.name}</h2>
+                <span className="text-lg font-extrabold whitespace-nowrap">{formatMoney(live.basePrice)}</span>
+              </div>
+              {live.description && <p className="text-sm text-muted leading-relaxed">{live.description}</p>}
+              <ItemMeta item={live} theme={theme} />
+              <DietaryBadges tags={live.dietaryTags} size="md" />
+              {live.isSoldOut && <p className="text-sm font-semibold text-red-600">This item is sold out right now.</p>}
+            </div>
+
+            {(live.modifierGroups || []).map((group) => (
+              <GroupPicker
+                key={group.id}
+                group={group}
+                picked={picks[group.id] || []}
+                onChange={(ids) => setPicks((prev) => ({ ...prev, [group.id]: ids }))}
+                showError={showErrors}
+              />
+            ))}
+
+            <label className="block">
+              <span className="block font-bold mb-1.5">Special instructions</span>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value.slice(0, 200))}
+                rows={2}
+                placeholder="e.g. no onions, sauce on the side"
+                className="w-full rounded-btn border border-line bg-page px-3.5 py-2.5 text-sm placeholder:text-muted focus:ring-2 focus:ring-brand outline-none resize-none"
+              />
+              <span className="block text-[11px] text-muted mt-1">Allergies? Please also mention them in the order notes at checkout.</span>
+            </label>
+          </div>
+        </div>
       )}
-    </AnimatePresence>
+    </Sheet>
   );
 };

@@ -1,328 +1,319 @@
-import React, { useMemo, useState } from 'react';
-import { Order } from '../types';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
-import { format, subDays, isSameDay, subHours, subMonths, endOfDay } from 'date-fns';
-import { DollarSign, TrendingUp, ShoppingBag, Users, Download, Calendar } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Timestamp, collection, getDocs, orderBy, query, where } from 'firebase/firestore';
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { endOfDay, format, startOfDay, subDays } from 'date-fns';
+import { Download } from 'lucide-react';
+import { db } from '../firebase';
+import type { Order } from '../types';
+import { formatMoney, fromCents, toCents } from '../lib/money';
+import { orderCode } from '../lib/ids';
+import { toDate, toMillis } from '../lib/dates';
+import { isCashDue, paymentMethodOf } from '../lib/orderStatus';
+import { adminInput, Spinner } from './ui';
+import { reportError } from '../utils/errorHandling';
 
-interface AdminFinancialsProps {
-  orders: Order[];
+type Range = 'today' | 'yesterday' | '7d' | '30d' | 'custom';
+
+const RANGE_LABEL: Record<Range, string> = { today: 'Today', yesterday: 'Yesterday', '7d': 'Last 7 days', '30d': 'Last 30 days', custom: 'Custom' };
+
+/** Orders that represent real sales: placed (not abandoned) and not cancelled. */
+const isSale = (o: Order) => o.status !== 'payment_pending' && o.status !== 'cancelled';
+
+function csvCell(value: unknown): string {
+  const s = value === undefined || value === null ? '' : String(value);
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-type TimeRange = 'last_hour' | 'today' | 'last_7_days' | 'last_month' | 'custom';
-
-export const AdminFinancials: React.FC<AdminFinancialsProps> = ({ orders }) => {
-  const [timeRange, setTimeRange] = useState<TimeRange>('last_7_days');
-  const [customStartDate, setCustomStartDate] = useState<string>('');
-  const [customEndDate, setCustomEndDate] = useState<string>('');
-
-  const completedOrders = useMemo(() => {
-    const now = new Date();
-    return orders.filter(o => {
-      if (o.status !== 'completed') return false;
-      const orderDate = o.createdAt ? new Date((o.createdAt as any).seconds * 1000) : new Date();
-      
-      if (timeRange === 'last_hour') {
-        return orderDate >= subHours(now, 1);
-      } else if (timeRange === 'today') {
-        return isSameDay(orderDate, now);
-      } else if (timeRange === 'last_7_days') {
-        return orderDate >= subDays(now, 7);
-      } else if (timeRange === 'last_month') {
-        return orderDate >= subMonths(now, 1);
-      } else if (timeRange === 'custom') {
-        if (customStartDate && customEndDate) {
-          return orderDate >= new Date(customStartDate) && orderDate <= endOfDay(new Date(customEndDate));
-        }
-        return true;
-      }
-      return true;
-    });
-  }, [orders, timeRange, customStartDate, customEndDate]);
-  
-  const totalRevenue = completedOrders.reduce((sum, o) => sum + o.total, 0);
-  const averageOrderValue = completedOrders.length > 0 ? totalRevenue / completedOrders.length : 0;
-
-  const revenueData = useMemo(() => {
-    const now = new Date();
-    if (timeRange === 'last_hour') {
-      return [{ date: 'Last Hour', revenue: totalRevenue, orders: completedOrders.length }];
-    } else if (timeRange === 'today') {
-      const hours = Array.from({ length: 24 }).map((_, i) => i);
-      return hours.map(hour => {
-        const hourOrders = completedOrders.filter(o => {
-          const orderDate = o.createdAt ? new Date((o.createdAt as any).seconds * 1000) : new Date();
-          return orderDate.getHours() === hour;
-        });
-        return {
-          date: `${hour}:00`,
-          revenue: hourOrders.reduce((sum, o) => sum + o.total, 0),
-          orders: hourOrders.length
-        };
-      }).filter(d => d.revenue > 0 || d.orders > 0);
-    } else if (timeRange === 'last_7_days') {
-      const last7Days = Array.from({ length: 7 }).map((_, i) => subDays(now, i)).reverse();
-      return last7Days.map(date => {
-        const dayOrders = completedOrders.filter(o => {
-          const orderDate = o.createdAt ? new Date((o.createdAt as any).seconds * 1000) : new Date();
-          return isSameDay(orderDate, date);
-        });
-        return {
-          date: format(date, 'MMM dd'),
-          revenue: dayOrders.reduce((sum, o) => sum + o.total, 0),
-          orders: dayOrders.length
-        };
-      });
-    } else if (timeRange === 'last_month') {
-      const last30Days = Array.from({ length: 30 }).map((_, i) => subDays(now, i)).reverse();
-      return last30Days.map(date => {
-        const dayOrders = completedOrders.filter(o => {
-          const orderDate = o.createdAt ? new Date((o.createdAt as any).seconds * 1000) : new Date();
-          return isSameDay(orderDate, date);
-        });
-        return {
-          date: format(date, 'MMM dd'),
-          revenue: dayOrders.reduce((sum, o) => sum + o.total, 0),
-          orders: dayOrders.length
-        };
-      });
-    } else if (timeRange === 'custom') {
-      if (!customStartDate || !customEndDate) return [];
-      const start = new Date(customStartDate);
-      const end = new Date(customEndDate);
-      const diffDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 3600 * 24));
-      
-      if (diffDays <= 31) {
-        const days = Array.from({ length: diffDays + 1 }).map((_, i) => {
-          const d = new Date(start);
-          d.setDate(d.getDate() + i);
-          return d;
-        });
-        return days.map(date => {
-          const dayOrders = completedOrders.filter(o => {
-            const orderDate = o.createdAt ? new Date((o.createdAt as any).seconds * 1000) : new Date();
-            return isSameDay(orderDate, date);
-          });
-          return {
-            date: format(date, 'MMM dd'),
-            revenue: dayOrders.reduce((sum, o) => sum + o.total, 0),
-            orders: dayOrders.length
-          };
-        });
-      } else {
-        const months: Record<string, { revenue: number, orders: number }> = {};
-        completedOrders.forEach(o => {
-          const orderDate = o.createdAt ? new Date((o.createdAt as any).seconds * 1000) : new Date();
-          const monthKey = format(orderDate, 'MMM yyyy');
-          if (!months[monthKey]) months[monthKey] = { revenue: 0, orders: 0 };
-          months[monthKey].revenue += o.total;
-          months[monthKey].orders += 1;
-        });
-        return Object.entries(months).map(([date, data]) => ({
-          date,
-          revenue: data.revenue,
-          orders: data.orders
-        }));
-      }
+function bounds(range: Range, customStart: string, customEnd: string): [Date, Date] | null {
+  const now = new Date();
+  switch (range) {
+    case 'today':
+      return [startOfDay(now), endOfDay(now)];
+    case 'yesterday': {
+      const y = subDays(now, 1);
+      return [startOfDay(y), endOfDay(y)];
     }
-    return [];
-  }, [completedOrders, timeRange, customStartDate, customEndDate, totalRevenue]);
+    case '7d':
+      return [startOfDay(subDays(now, 6)), endOfDay(now)];
+    case '30d':
+      return [startOfDay(subDays(now, 29)), endOfDay(now)];
+    case 'custom':
+      if (!customStart || !customEnd) return null;
+      return [startOfDay(new Date(`${customStart}T00:00`)), endOfDay(new Date(`${customEnd}T00:00`))];
+  }
+}
+
+export const AdminFinancials: React.FC<{ orders: Order[] }> = ({ orders }) => {
+  const [range, setRange] = useState<Range>('today');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+  const [customOrders, setCustomOrders] = useState<Order[] | null>(null);
+  const [loadingCustom, setLoadingCustom] = useState(false);
+
+  const window_ = bounds(range, customStart, customEnd);
+
+  // The dashboard streams the last 30 days; older custom ranges are fetched on demand.
+  useEffect(() => {
+    if (range !== 'custom' || !window_) {
+      setCustomOrders(null);
+      return;
+    }
+    let cancelled = false;
+    setLoadingCustom(true);
+    getDocs(
+      query(
+        collection(db, 'orders'),
+        where('createdAt', '>=', Timestamp.fromDate(window_[0])),
+        where('createdAt', '<=', Timestamp.fromDate(window_[1])),
+        orderBy('createdAt', 'desc'),
+      ),
+    )
+      .then((snap) => !cancelled && setCustomOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Order)))
+      .catch((err) => reportError(err, 'financials-range'))
+      .finally(() => !cancelled && setLoadingCustom(false));
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [range, customStart, customEnd]);
+
+  const inRange = useMemo(() => {
+    if (!window_) return [];
+    const source = range === 'custom' ? customOrders || [] : orders;
+    const [start, end] = window_;
+    return source.filter((o) => {
+      const t = toMillis(o.createdAt, Date.now());
+      return t >= start.getTime() && t <= end.getTime();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders, customOrders, range, customStart, customEnd]);
+
+  const stats = useMemo(() => {
+    const sales = inRange.filter(isSale);
+    let net = 0;
+    let card = 0;
+    let cash = 0;
+    let cashDue = 0;
+    let tips = 0;
+    let tax = 0;
+    let discounts = 0;
+    let refunds = 0;
+    let pickup = 0;
+    let delivery = 0;
+    for (const o of inRange) refunds += toCents(o.refundAmount || 0);
+    for (const o of sales) {
+      const netCents = toCents(o.total) - toCents(o.refundAmount || 0);
+      net += netCents;
+      if (paymentMethodOf(o) === 'cash') {
+        if (o.paymentStatus === 'paid') cash += netCents;
+        else if (isCashDue(o)) cashDue += toCents(o.total);
+      } else if (['paid', 'partially_refunded'].includes(o.paymentStatus || '')) {
+        card += netCents;
+      }
+      tips += toCents(o.restaurantTip || 0) + toCents(o.deliveryTip || 0);
+      tax += toCents(o.tax || 0);
+      discounts += toCents(o.discountAmount || 0);
+      if (o.type === 'delivery') delivery++;
+      else pickup++;
+    }
+    return {
+      count: sales.length,
+      cancelled: inRange.filter((o) => o.status === 'cancelled' && o.paymentStatus !== 'failed').length,
+      net: fromCents(net),
+      avg: sales.length ? fromCents(net / sales.length) : 0,
+      card: fromCents(card),
+      cash: fromCents(cash),
+      cashDue: fromCents(cashDue),
+      tips: fromCents(tips),
+      tax: fromCents(tax),
+      discounts: fromCents(discounts),
+      refunds: fromCents(refunds),
+      pickup,
+      delivery,
+    };
+  }, [inRange]);
+
+  const chart = useMemo(() => {
+    if (!window_) return [];
+    const sales = inRange.filter(isSale);
+    const [start, end] = window_;
+    const singleDay = end.getTime() - start.getTime() <= 24 * 60 * 60 * 1000;
+    const buckets = new Map<string, number>();
+    if (singleDay) {
+      for (let h = 0; h < 24; h++) buckets.set(`${h}`, 0);
+      for (const o of sales) {
+        const d = toDate(o.createdAt);
+        if (d) buckets.set(`${d.getHours()}`, (buckets.get(`${d.getHours()}`) || 0) + toCents(o.total) - toCents(o.refundAmount || 0));
+      }
+      return [...buckets.entries()]
+        .map(([h, cents]) => ({ label: format(new Date(2000, 0, 1, Number(h)), 'ha'), revenue: fromCents(cents) }))
+        .filter((_, i, all) => i >= 6 || all.slice(0, 6).some((x) => x.revenue > 0));
+    }
+    for (let d = new Date(start); d <= end; d = new Date(d.getTime() + 24 * 60 * 60 * 1000)) buckets.set(format(d, 'MMM d'), 0);
+    for (const o of sales) {
+      const d = toDate(o.createdAt);
+      if (!d) continue;
+      const key = format(d, 'MMM d');
+      buckets.set(key, (buckets.get(key) || 0) + toCents(o.total) - toCents(o.refundAmount || 0));
+    }
+    return [...buckets.entries()].map(([label, cents]) => ({ label, revenue: fromCents(cents) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inRange]);
 
   const topItems = useMemo(() => {
-    const itemCounts: Record<string, { name: string, quantity: number, revenue: number }> = {};
-    completedOrders.forEach(order => {
-      order.items.forEach(item => {
-        if (!itemCounts[item.id]) {
-          itemCounts[item.id] = { name: item.name, quantity: 0, revenue: 0 };
-        }
-        itemCounts[item.id].quantity += item.quantity;
-        itemCounts[item.id].revenue += item.price * item.quantity;
-      });
-    });
-    return Object.values(itemCounts)
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 5);
-  }, [completedOrders]);
+    const map = new Map<string, { name: string; quantity: number; revenue: number }>();
+    for (const o of inRange.filter(isSale)) {
+      for (const item of o.items) {
+        const entry = map.get(item.itemId) || { name: item.name, quantity: 0, revenue: 0 };
+        entry.quantity += item.quantity;
+        entry.revenue += toCents(item.price) * item.quantity;
+        map.set(item.itemId, entry);
+      }
+    }
+    return [...map.values()].sort((a, b) => b.quantity - a.quantity).slice(0, 8);
+  }, [inRange]);
 
-  const COLORS = ['#000000', '#333333', '#666666', '#999999', '#CCCCCC'];
-
-  const exportToCSV = () => {
-    const headers = ['Order ID', 'Date', 'Customer Name', 'Total', 'Status', 'Items'];
-    const csvContent = [
-      headers.join(','),
-      ...orders.map(o => {
-        const date = o.createdAt ? new Date((o.createdAt as any).seconds * 1000).toLocaleDateString() : '';
-        const itemsStr = o.items.map(i => `${i.quantity}x ${i.name}`).join('; ');
-        return `"${o.id}","${date}","${o.customerName || 'Guest'}","${o.total.toFixed(2)}","${o.status}","${itemsStr}"`;
-      })
-    ].join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
+  const exportCsv = () => {
+    const header = [
+      'Order', 'Date', 'Customer', 'Phone', 'Type', 'Status', 'Payment method', 'Payment status', 'Subtotal', 'Discount', 'Promo',
+      'Delivery fee', 'Service fee', 'Tax', 'Tip', 'Driver tip', 'Total', 'Refunded', 'Items',
+    ];
+    const rows = inRange
+      .filter((o) => o.status !== 'payment_pending')
+      .map((o) =>
+        [
+          orderCode(o),
+          toDate(o.createdAt)?.toISOString() || '',
+          o.customerName || '',
+          o.customerPhone || '',
+          o.type,
+          o.status,
+          paymentMethodOf(o),
+          o.paymentStatus || '',
+          (o.subtotal ?? '').toString(),
+          (o.discountAmount || 0).toFixed(2),
+          o.promoCode || '',
+          (o.deliveryFee || 0).toFixed(2),
+          (o.serviceFee || 0).toFixed(2),
+          (o.tax || 0).toFixed(2),
+          (o.restaurantTip || 0).toFixed(2),
+          (o.deliveryTip || 0).toFixed(2),
+          o.total.toFixed(2),
+          (o.refundAmount || 0).toFixed(2),
+          o.items.map((i) => `${i.quantity}x ${i.name}${i.selectedModifiers?.length ? ` (${i.selectedModifiers.map((m) => m.name).join(', ')})` : ''}`).join('; '),
+        ]
+          .map(csvCell)
+          .join(','),
+      );
+    const blob = new Blob([[header.join(','), ...rows].join('\n')], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', `sales_report_${format(new Date(), 'yyyy-MM-dd')}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `sales_${range}_${format(new Date(), 'yyyy-MM-dd')}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
+  const Stat = ({ label, value, hint, tone = '' }: { label: string; value: string; hint?: string; tone?: string }) => (
+    <div className={`rounded-2xl border p-3 sm:p-4 ${tone || 'bg-white border-gray-100'}`}>
+      <p className="text-[11px] sm:text-xs font-semibold uppercase tracking-wide text-gray-500">{label}</p>
+      <p className="text-lg sm:text-2xl font-extrabold mt-0.5">{value}</p>
+      {hint && <p className="text-[11px] text-gray-500">{hint}</p>}
+    </div>
+  );
+
   return (
-    <div className="space-y-6 sm:space-y-8 mb-8 sm:mb-12">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
+    <section className="space-y-4 pt-4">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
         <div>
-          <h2 className="text-xl sm:text-2xl font-bold text-black">Financial Overview</h2>
-          <p className="text-sm sm:text-base text-gray-500">Track your restaurant's performance</p>
+          <h2 className="text-xl sm:text-2xl font-extrabold">Sales & insights</h2>
+          <p className="text-sm text-gray-500">Net of refunds. Cancelled and unpaid checkouts are excluded.</p>
         </div>
-        <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
-          <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto hide-scrollbar pb-1 sm:pb-0">
-            <select
-              value={timeRange}
-              onChange={(e) => setTimeRange(e.target.value as TimeRange)}
-              className="bg-white border border-gray-200 text-gray-700 text-sm rounded-2xl focus:ring-black focus:border-black block p-2.5 shadow-sm outline-none"
-            >
-              <option value="last_hour">Last Hour</option>
-              <option value="today">Today</option>
-              <option value="last_7_days">Last 7 Days</option>
-              <option value="last_month">Last Month</option>
-              <option value="custom">Custom Range</option>
-            </select>
-            
-            {timeRange === 'custom' && (
-              <div className="flex items-center gap-2">
-                <input
-                  type="date"
-                  value={customStartDate}
-                  onChange={(e) => setCustomStartDate(e.target.value)}
-                  className="bg-white border border-gray-200 text-gray-700 text-sm rounded-2xl focus:ring-black focus:border-black block p-2.5 shadow-sm outline-none"
-                />
-                <span className="text-gray-400">-</span>
-                <input
-                  type="date"
-                  value={customEndDate}
-                  onChange={(e) => setCustomEndDate(e.target.value)}
-                  className="bg-white border border-gray-200 text-gray-700 text-sm rounded-2xl focus:ring-black focus:border-black block p-2.5 shadow-sm outline-none"
-                />
-              </div>
-            )}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex gap-1 overflow-x-auto hide-scrollbar">
+            {(Object.keys(RANGE_LABEL) as Range[]).map((r) => (
+              <button
+                key={r}
+                onClick={() => setRange(r)}
+                className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold ${range === r ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-700'}`}
+              >
+                {RANGE_LABEL[r]}
+              </button>
+            ))}
           </div>
-          
-          <button 
-            onClick={exportToCSV}
-            className="w-full sm:w-auto flex justify-center items-center gap-2 bg-black text-[#EADDC5] px-4 py-2.5 sm:py-2.5 rounded-2xl hover:bg-gray-900 transition-colors shadow-ios-sm text-sm font-medium shrink-0"
-          >
-            <Download size={16} />
-            Export CSV
+          <button onClick={exportCsv} disabled={!inRange.length} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-gray-900 text-white disabled:opacity-40">
+            <Download size={14} /> CSV
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-        <div className="bg-white p-5 sm:p-6 rounded-[2rem] shadow-ios-sm border border-gray-100">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gray-100 text-black rounded-2xl flex items-center justify-center shrink-0">
-              <DollarSign size={20} className="sm:w-6 sm:h-6" />
-            </div>
-            <div>
-              <p className="text-xs sm:text-sm font-medium text-gray-500 uppercase tracking-wider">Total Revenue</p>
-              <h3 className="text-2xl sm:text-3xl font-bold text-black">${totalRevenue.toFixed(2)}</h3>
-            </div>
-          </div>
+      {range === 'custom' && (
+        <div className="flex items-center gap-2">
+          <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className={`${adminInput} max-w-[170px]`} aria-label="Start date" />
+          <span className="text-gray-400">–</span>
+          <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className={`${adminInput} max-w-[170px]`} aria-label="End date" />
+          {loadingCustom && <Spinner className="text-gray-400" />}
         </div>
-        
-        <div className="bg-white p-5 sm:p-6 rounded-[2rem] shadow-ios-sm border border-gray-100">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gray-100 text-black rounded-2xl flex items-center justify-center shrink-0">
-              <ShoppingBag size={20} className="sm:w-6 sm:h-6" />
-            </div>
-            <div>
-              <p className="text-xs sm:text-sm font-medium text-gray-500 uppercase tracking-wider">Total Orders</p>
-              <h3 className="text-2xl sm:text-3xl font-bold text-black">{completedOrders.length}</h3>
-            </div>
-          </div>
-        </div>
+      )}
 
-        <div className="bg-white p-5 sm:p-6 rounded-[2rem] shadow-ios-sm border border-gray-100">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gray-100 text-black rounded-2xl flex items-center justify-center shrink-0">
-              <TrendingUp size={20} className="sm:w-6 sm:h-6" />
-            </div>
-            <div>
-              <p className="text-xs sm:text-sm font-medium text-gray-500 uppercase tracking-wider">Avg Order Value</p>
-              <h3 className="text-2xl sm:text-3xl font-bold text-black">${averageOrderValue.toFixed(2)}</h3>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white p-5 sm:p-6 rounded-[2rem] shadow-ios-sm border border-gray-100">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gray-100 text-black rounded-2xl flex items-center justify-center shrink-0">
-              <Users size={20} className="sm:w-6 sm:h-6" />
-            </div>
-            <div>
-              <p className="text-xs sm:text-sm font-medium text-gray-500 uppercase tracking-wider">Active Orders</p>
-              <h3 className="text-2xl sm:text-3xl font-bold text-black">{orders.filter(o => !['completed', 'cancelled'].includes(o.status)).length}</h3>
-            </div>
-          </div>
-        </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+        <Stat label="Net sales" value={formatMoney(stats.net)} hint={`${stats.count} orders · avg ${formatMoney(stats.avg)}`} />
+        <Stat label="Card collected" value={formatMoney(stats.card)} />
+        <Stat label="Cash collected" value={formatMoney(stats.cash)} />
+        <Stat label="Cash outstanding" value={formatMoney(stats.cashDue)} tone={stats.cashDue > 0 ? 'bg-amber-50 border-amber-200' : ''} />
+        <Stat label="Tips" value={formatMoney(stats.tips)} />
+        <Stat label="Tax collected" value={formatMoney(stats.tax)} />
+        <Stat label="Discounts given" value={formatMoney(stats.discounts)} hint={stats.refunds ? `Refunds ${formatMoney(stats.refunds)}` : undefined} />
+        <Stat label="Pickup / delivery" value={`${stats.pickup} / ${stats.delivery}`} hint={stats.cancelled ? `${stats.cancelled} cancelled` : undefined} />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-        <div className="bg-white p-5 sm:p-8 rounded-[2rem] shadow-ios-sm border border-gray-100 lg:col-span-2 overflow-hidden">
-          <h3 className="text-xl sm:text-2xl font-bold text-black mb-6 sm:mb-8">
-            Revenue ({timeRange === 'last_hour' ? 'Last Hour' : timeRange === 'today' ? 'Today' : timeRange === 'last_7_days' ? 'Last 7 Days' : timeRange === 'last_month' ? 'Last Month' : 'Custom Range'})
-          </h3>
-          <div className="h-60 sm:h-72 w-full min-w-0 min-h-0">
-            <ResponsiveContainer width="99%" height="100%">
-              <BarChart data={revenueData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
-                <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#6b7280', fontSize: 12 }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#6b7280', fontSize: 12 }} tickFormatter={(value) => `$${value}`} />
-                <Tooltip 
-                  cursor={{ fill: '#f3f4f6' }}
-                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                  formatter={(value: number) => [`$${value.toFixed(2)}`, 'Revenue']}
-                />
-                <Bar dataKey="revenue" fill="#000000" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        <div className="lg:col-span-2 bg-white rounded-3xl border border-gray-100 p-4 sm:p-5">
+          <h3 className="font-bold mb-3">Revenue</h3>
+          <div className="h-56 sm:h-64">
+            {chart.some((c) => c.revenue > 0) ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chart} margin={{ top: 4, right: 4, left: -16, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0ebe3" />
+                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#6b7d6b', fontSize: 11 }} interval="preserveStartEnd" />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: '#6b7d6b', fontSize: 11 }} tickFormatter={(v) => `$${v}`} width={52} />
+                  <Tooltip cursor={{ fill: '#f6f2ec' }} contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 4px 12px rgb(0 0 0 / 0.1)' }} formatter={(v: number) => [formatMoney(v), 'Revenue']} />
+                  <Bar dataKey="revenue" fill="#1A211A" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-sm text-gray-400">No sales in this period</div>
+            )}
           </div>
         </div>
-
-        <div className="bg-white p-5 sm:p-8 rounded-[2rem] shadow-ios-sm border border-gray-100 overflow-hidden">
-          <h3 className="text-xl sm:text-2xl font-bold text-black mb-6 sm:mb-8">Top Selling Items</h3>
-          {topItems.length > 0 ? (
-            <div className="h-60 sm:h-72 flex flex-col w-full min-w-0 min-h-0">
-              <ResponsiveContainer width="99%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={topItems}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={70}
-                    paddingAngle={5}
-                    dataKey="revenue"
-                  >
-                    {topItems.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip 
-                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                    formatter={(value: number) => [`$${value.toFixed(2)}`, 'Revenue']}
-                  />
-                  <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
+        <div className="bg-white rounded-3xl border border-gray-100 p-4 sm:p-5">
+          <h3 className="font-bold mb-3">Top sellers</h3>
+          {topItems.length ? (
+            <ol className="space-y-2.5">
+              {topItems.map((item, i) => {
+                const max = topItems[0].quantity || 1;
+                return (
+                  <li key={item.name + i} className="text-sm">
+                    <div className="flex justify-between gap-2">
+                      <span className="font-semibold truncate">
+                        {i + 1}. {item.name}
+                      </span>
+                      <span className="text-gray-500 whitespace-nowrap">
+                        {item.quantity} · {formatMoney(fromCents(item.revenue))}
+                      </span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-gray-100 mt-1">
+                      <div className="h-full rounded-full bg-gray-900" style={{ width: `${(item.quantity / max) * 100}%` }} />
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
           ) : (
-            <div className="h-60 sm:h-72 flex items-center justify-center text-gray-400 text-sm sm:text-base">
-              No sales data available
-            </div>
+            <p className="text-sm text-gray-400">No sales in this period</p>
           )}
         </div>
       </div>
-    </div>
+    </section>
   );
 };

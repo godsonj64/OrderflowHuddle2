@@ -1,428 +1,459 @@
-import React, { useEffect, useState } from 'react';
-import { collection, onSnapshot, query, orderBy, updateDoc, doc, increment, serverTimestamp } from 'firebase/firestore';
-import { db, auth } from '../firebase';
-import { Order } from '../types';
+import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import { Timestamp, collection, onSnapshot, orderBy, query, where } from 'firebase/firestore';
+import toast from 'react-hot-toast';
+import { AlertTriangle, Banknote, CalendarClock, MapPin, Phone, RefreshCw, Search, Undo2, XCircle } from 'lucide-react';
+import { db } from '../firebase';
+import type { Order } from '../types';
 import { useAuth } from '../context/AuthContext';
-import { Navigate, Link } from 'react-router-dom';
-import { motion, AnimatePresence } from 'motion/react';
-import { Clock, CheckCircle, Package, Truck, XCircle, Settings, LayoutList, Search, Filter, RefreshCw, Users, Tag } from 'lucide-react';
-import { handleFirestoreError, OperationType } from '../utils/errorHandling';
-import { AdminFinancials } from '../components/AdminFinancials';
+import { useOrderActions } from '../hooks/useOrderActions';
+import { StoreControls } from '../components/StoreControls';
+import { ConfirmDialog, PageSpinner, Sheet, Spinner, adminInput } from '../components/ui';
+import { ApiError, api } from '../lib/api';
+import { formatMoney, fromCents, toCents } from '../lib/money';
+import { orderCode } from '../lib/ids';
+import { formatDateTime, timeAgo, toMillis } from '../lib/dates';
+import { ACTIVE_STATUSES, STATUS_LABEL, STATUS_STYLE, TONE_STYLE, isCashDue, nextStep, paymentSummary } from '../lib/orderStatus';
+import { reportError } from '../utils/errorHandling';
 
-export const AdminDashboard: React.FC = () => {
-  const { userProfile, loading } = useAuth();
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [loadingOrders, setLoadingOrders] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+const AdminFinancials = lazy(() => import('../components/AdminFinancials').then((m) => ({ default: m.AdminFinancials })));
 
-  useEffect(() => {
-    if (loading) return;
-    if (!userProfile || !['admin', 'restaurant_owner', 'manager', 'staff'].includes(userProfile.role)) return;
+type Filter = 'active' | 'completed' | 'cancelled' | 'unpaid' | 'all';
 
-    const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
-    const unsub = onSnapshot(q, (snapshot) => {
-      setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order)));
-      setLoadingOrders(false);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'orders'));
-
-    return () => unsub();
-  }, [userProfile, loading]);
-
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center min-h-[50vh]">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black"></div>
-      </div>
-    );
+/** "Size: Double · Extras: Extra cheese, Bacon" */
+function groupModifiers(mods: Order['items'][number]['selectedModifiers']): string {
+  const groups = new Map<string, string[]>();
+  for (const m of mods) {
+    const key = m.groupName || '';
+    groups.set(key, [...(groups.get(key) || []), m.name]);
   }
+  return [...groups.entries()].map(([g, names]) => (g ? `${g}: ${names.join(', ')}` : names.join(', '))).join(' · ');
+}
 
-  if (!userProfile || !['admin', 'restaurant_owner', 'manager', 'staff'].includes(userProfile.role)) {
-    return <Navigate to="/" />;
-  }
+interface CardProps {
+  order: Order;
+  isManager: boolean;
+  onAdvance: (order: Order) => void;
+  onCollectCash: (order: Order) => void;
+  onUndoCash: (order: Order) => void;
+  onCancel: (order: Order) => void;
+  onRefund: (order: Order) => void;
+  onCheckPayment: (order: Order) => void;
+}
 
-  const updateOrderStatus = async (orderId: string, status: Order['status']) => {
-    try {
-      await updateDoc(doc(db, 'orders', orderId), { status });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `orders/${orderId}`);
-    }
-  };
-
-  const [refundModal, setRefundModal] = useState<{ isOpen: boolean, order: Order | null, amount: string }>({ isOpen: false, order: null, amount: '' });
-
-  const handleRefund = async (order: Order) => {
-    if (!order.paymentIntentId) {
-      // Use a custom alert or just console.error for now, or a toast
-      console.error('This order does not have a Stripe payment intent associated with it.');
-      return;
-    }
-    setRefundModal({ isOpen: true, order, amount: order.total.toFixed(2) });
-  };
-
-  const confirmRefund = async () => {
-    const { order, amount: amountStr } = refundModal;
-    if (!order) return;
-
-    const amount = parseFloat(amountStr);
-    if (isNaN(amount) || amount <= 0 || amount > order.total) {
-      console.error('Invalid refund amount.');
-      return;
-    }
-
-    try {
-      const token = await auth.currentUser?.getIdToken();
-      if (!token) {
-        throw new Error('You must be logged in to perform a refund.');
-      }
-
-      const response = await fetch('/api/refund', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          paymentIntentId: order.paymentIntentId,
-          amount: amount,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        const isFullRefund = amount >= order.total;
-        await updateDoc(doc(db, 'orders', order.id), {
-          paymentStatus: isFullRefund ? 'refunded' : 'partially_refunded',
-          refundAmount: increment(amount),
-          status: isFullRefund ? 'cancelled' : order.status,
-          updatedAt: serverTimestamp()
-        });
-        setRefundModal({ isOpen: false, order: null, amount: '' });
-      } else {
-        throw new Error(data.error || 'Refund failed');
-      }
-    } catch (error: any) {
-      console.error('Refund error:', error);
-      alert(error.message || 'Refund failed');
-    }
-  };
-
-  const filteredOrders = orders.filter(o => {
-    const matchesSearch = o.id.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          o.customerName?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || o.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
-
-  const activeOrders = filteredOrders.filter(o => !['completed', 'cancelled'].includes(o.status));
-  const pastOrders = filteredOrders.filter(o => ['completed', 'cancelled'].includes(o.status));
-
-  const statusColors: Record<Order['status'], string> = {
-    new: 'bg-blue-100 text-blue-800 border-blue-200',
-    confirmed: 'bg-indigo-100 text-indigo-800 border-indigo-200',
-    preparing: 'bg-amber-100 text-amber-800 border-amber-200',
-    ready: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-    out_for_delivery: 'bg-purple-100 text-purple-800 border-purple-200',
-    completed: 'bg-stone-100 text-stone-800 border-stone-200',
-    cancelled: 'bg-red-100 text-red-800 border-red-200',
-  };
-
-  if (loadingOrders) {
-    return (
-      <div className="flex justify-center items-center min-h-[50vh]">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black"></div>
-      </div>
-    );
-  }
+function OrderCard({ order, isManager, onAdvance, onCollectCash, onUndoCash, onCancel, onRefund, onCheckPayment }: CardProps) {
+  const step = nextStep(order);
+  const pay = paymentSummary(order);
+  const cashDue = isCashDue(order);
+  const canRefund =
+    isManager && order.paymentMethod !== 'cash' && !!order.paymentIntentId && !order.paymentIntentId.startsWith('mock_') && ['paid', 'partially_refunded'].includes(order.paymentStatus || '');
+  const scheduled = order.scheduledTime;
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-6 sm:p-8 rounded-[2rem] shadow-ios-sm border border-gray-100 gap-4">
-        <div>
-          <h1 className="text-3xl sm:text-4xl font-bold text-black mb-2">Admin Dashboard</h1>
-          <p className="text-gray-500 text-base sm:text-lg">Manage orders, menu, and store settings.</p>
+    <article className="bg-white rounded-3xl border border-gray-100 shadow-ios-sm p-4 sm:p-5 flex flex-col gap-3">
+      <header className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <h3 className="font-extrabold text-lg font-mono tracking-tight">#{orderCode(order)}</h3>
+            <span className={`px-2 py-0.5 rounded-lg border text-[11px] font-bold uppercase tracking-wide ${STATUS_STYLE[order.status]}`}>{STATUS_LABEL[order.status]}</span>
+            <span className={`px-2 py-0.5 rounded-lg border text-[11px] font-bold ${TONE_STYLE[pay.tone]}`}>{pay.label}</span>
+          </div>
+          <p className="text-sm text-gray-600 mt-1">
+            <span className="font-semibold text-gray-900">{order.customerName || 'Guest'}</span> · {order.type === 'delivery' ? 'Delivery' : 'Pickup'} · {timeAgo(order.createdAt)}
+          </p>
         </div>
-        <div className="flex flex-wrap gap-2 sm:gap-3 w-full md:w-auto">
-          {['admin', 'restaurant_owner', 'manager'].includes(userProfile.role) && (
-            <Link to="/admin/users" className="flex-1 md:flex-none justify-center flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 sm:px-5 py-2.5 rounded-2xl font-medium transition-colors shadow-ios-sm text-sm sm:text-base">
-              <Users size={18} className="sm:w-5 sm:h-5" />
-              Users
-            </Link>
-          )}
-          {['admin', 'restaurant_owner', 'manager'].includes(userProfile.role) && (
-            <Link to="/admin/promos" className="flex-1 md:flex-none justify-center flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 sm:px-5 py-2.5 rounded-2xl font-medium transition-colors shadow-ios-sm text-sm sm:text-base">
-              <Tag size={18} className="sm:w-5 sm:h-5" />
-              Promos
-            </Link>
-          )}
-          {['admin', 'restaurant_owner', 'manager'].includes(userProfile.role) && (
-            <Link to="/admin/kitchen" className="flex-1 md:flex-none justify-center flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 sm:px-5 py-2.5 rounded-2xl font-medium transition-colors shadow-ios-sm text-sm sm:text-base">
-              <LayoutList size={18} className="sm:w-5 sm:h-5" />
-              Kitchen
-            </Link>
-          )}
-          {['admin', 'restaurant_owner', 'manager'].includes(userProfile.role) && (
-            <Link to="/admin/menu" className="flex-1 md:flex-none justify-center flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 sm:px-5 py-2.5 rounded-2xl font-medium transition-colors shadow-ios-sm text-sm sm:text-base">
-              <LayoutList size={18} className="sm:w-5 sm:h-5" />
-              Menu
-            </Link>
-          )}
-          {['admin', 'restaurant_owner', 'manager'].includes(userProfile.role) && (
-            <Link to="/admin/settings" className="flex-1 md:flex-none justify-center flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 sm:px-5 py-2.5 rounded-2xl font-medium transition-colors shadow-ios-sm text-sm sm:text-base">
-              <Settings size={18} className="sm:w-5 sm:h-5" />
-              Settings
-            </Link>
-          )}
+        <div className="text-right shrink-0">
+          <p className="font-extrabold text-lg">{formatMoney(order.total)}</p>
+          {!!order.refundAmount && <p className="text-[11px] text-red-600">−{formatMoney(order.refundAmount)} refunded</p>}
         </div>
-      </div>
+      </header>
 
-      {['admin', 'restaurant_owner', 'manager'].includes(userProfile.role) && <AdminFinancials orders={orders} />}
+      {scheduled && (
+        <p className="text-sm font-semibold text-indigo-700 bg-indigo-50 rounded-xl px-3 py-1.5 flex items-center gap-1.5">
+          <CalendarClock size={15} /> Scheduled for {scheduled}
+        </p>
+      )}
 
-      <div className="bg-white p-4 sm:p-8 rounded-[2rem] shadow-ios-sm border border-gray-100 mb-6 sm:mb-8 flex flex-col md:flex-row gap-3 sm:gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-          <input 
-            type="text" 
-            placeholder="Search by Order ID or Customer Name..." 
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-12 pr-4 py-3 sm:py-4 rounded-2xl border border-gray-200 focus:ring-2 focus:ring-black focus:border-black outline-none transition-all text-sm sm:text-base"
-          />
-        </div>
-        <div className="relative md:min-w-[240px]">
-          <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-          <select 
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="w-full pl-12 pr-4 py-3 sm:py-4 rounded-2xl border border-gray-200 focus:ring-2 focus:ring-black focus:border-black outline-none appearance-none bg-white transition-all text-sm sm:text-base"
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+        {order.customerPhone && (
+          <a href={`tel:${order.customerPhone}`} className="flex items-center gap-1.5 text-gray-700 hover:text-black">
+            <Phone size={14} /> {order.customerPhone}
+          </a>
+        )}
+        {order.type === 'delivery' && order.deliveryAddress && (
+          <a
+            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.deliveryAddress)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-gray-700 hover:text-black"
           >
-            <option value="all">All Statuses</option>
-            <option value="new">New</option>
-            <option value="confirmed">Confirmed</option>
-            <option value="preparing">Preparing</option>
-            <option value="ready">Ready for Pickup</option>
-            <option value="out_for_delivery">Out for Delivery</option>
-            <option value="completed">Completed</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
-        </div>
+            <MapPin size={14} /> {order.deliveryAddress}
+          </a>
+        )}
+        {order.driverName && <span className="text-gray-500">Driver: {order.driverName}</span>}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-10">
-        {/* Active Orders */}
-        <div className="lg:col-span-2 space-y-4 sm:space-y-6">
-          <h2 className="text-2xl sm:text-3xl font-bold text-black flex items-center gap-2 sm:gap-3 mb-4 sm:mb-8">
-            <Clock className="text-emerald-600 w-6 h-6 sm:w-7 sm:h-7" /> Active Orders ({activeOrders.length})
-          </h2>
-          {activeOrders.length === 0 ? (
-            <div className="bg-white p-8 sm:p-12 rounded-[2rem] shadow-ios-sm border border-gray-100 text-center text-gray-500 text-base sm:text-lg">
-              No active orders found.
+      <ul className="bg-gray-50 rounded-2xl p-3 space-y-2">
+        {order.items.map((item, i) => (
+          <li key={i} className="text-sm">
+            <div className="flex justify-between gap-3">
+              <span className="font-semibold">
+                <span className="text-gray-400 mr-1.5">{item.quantity}×</span>
+                {item.name}
+              </span>
+              <span className="text-gray-500">{formatMoney(item.price * item.quantity)}</span>
             </div>
-          ) : (
-            <AnimatePresence>
-              {activeOrders.map(order => (
-                <motion.div 
-                  layout 
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  key={order.id} 
-                  className="bg-white p-5 sm:p-8 rounded-[2rem] shadow-ios-sm border border-gray-100 space-y-4 sm:space-y-6"
-                >
-                  <div className="flex flex-col sm:flex-row justify-between items-start gap-3 sm:gap-4">
-                    <div className="w-full sm:w-auto">
-                      <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-1">
-                        <h3 className="font-bold text-base sm:text-lg text-black">Order #{order.id.slice(-6).toUpperCase()}</h3>
-                        <span className={`px-2 py-0.5 sm:px-3 sm:py-1 rounded-xl text-[10px] sm:text-xs font-bold uppercase tracking-wider border ${statusColors[order.status]}`}>
-                          {order.status.replace('_', ' ')}
-                        </span>
-                        {order.paymentStatus === 'paid' && (
-                          <span className="px-2 py-0.5 sm:px-3 sm:py-1 rounded-xl text-[10px] sm:text-xs font-bold uppercase tracking-wider border bg-emerald-50 text-emerald-700 border-emerald-200">
-                            Paid
-                          </span>
-                        )}
-                        {order.paymentStatus === 'refunded' && (
-                          <span className="px-2 py-0.5 sm:px-3 sm:py-1 rounded-xl text-[10px] sm:text-xs font-bold uppercase tracking-wider border bg-red-50 text-red-700 border-red-200">
-                            Refunded
-                          </span>
-                        )}
-                        {order.paymentStatus === 'partially_refunded' && (
-                          <span className="px-2 py-0.5 sm:px-3 sm:py-1 rounded-xl text-[10px] sm:text-xs font-bold uppercase tracking-wider border bg-amber-50 text-amber-700 border-amber-200">
-                            Partially Refunded (${order.refundAmount?.toFixed(2)})
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-gray-500 text-xs sm:text-sm font-medium">{order.customerName} &bull; {order.type.toUpperCase()}</p>
-                      {order.customerPhone && (
-                        <p className="text-gray-500 text-xs sm:text-sm mt-1">
-                          <a href={`tel:${order.customerPhone}`} className="hover:text-black transition-colors">📞 {order.customerPhone}</a>
-                        </p>
-                      )}
-                      {order.type === 'delivery' && order.deliveryAddress && (
-                        <p className="text-gray-500 text-xs sm:text-sm mt-1">{order.deliveryAddress}</p>
-                      )}
-                      {order.scheduledTime && (
-                        <p className="text-emerald-600 font-medium text-xs sm:text-sm mt-1">
-                          📅 Scheduled: {order.scheduledTime}
-                        </p>
-                      )}
-                    </div>
-                    <div className="text-left sm:text-right w-full sm:w-auto flex flex-row sm:flex-col justify-between sm:justify-start items-center sm:items-end">
-                      <p className="font-bold text-lg sm:text-xl text-black">${order.total.toFixed(2)}</p>
-                      <p className="text-[10px] sm:text-xs text-gray-400">
-                        {order.createdAt ? new Date((order.createdAt as any).seconds * 1000).toLocaleTimeString() : 'Just now'}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="bg-gray-50 p-3 sm:p-4 rounded-2xl space-y-2">
-                    {order.items.map((item, idx) => (
-                      <div key={idx} className="flex justify-between text-xs sm:text-sm">
-                        <span className="font-medium text-gray-700">
-                          <span className="text-gray-400 mr-1 sm:mr-2">{item.quantity}x</span> 
-                          {item.name}
-                        </span>
-                        <span className="text-gray-500">${(item.price * item.quantity).toFixed(2)}</span>
-                      </div>
-                    ))}
-                    {order.notes && (
-                      <div className="pt-2 mt-2 border-t border-gray-200">
-                        <span className="font-bold text-xs sm:text-sm text-black block mb-1">Notes & Allergies:</span>
-                        <span className="text-gray-600 text-xs sm:text-sm">{order.notes}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex flex-wrap gap-2 pt-3 sm:pt-4 border-t border-gray-100">
-                    {order.status === 'new' && (
-                      <button onClick={() => updateOrderStatus(order.id, 'confirmed')} className="flex-1 sm:flex-none justify-center bg-indigo-600 hover:bg-indigo-700 text-[#EADDC5] px-4 sm:px-5 py-2 sm:py-2.5 rounded-2xl text-xs sm:text-sm font-medium transition-colors shadow-ios-sm">
-                        Confirm Order
-                      </button>
-                    )}
-                    {order.status === 'confirmed' && (
-                      <button onClick={() => updateOrderStatus(order.id, 'preparing')} className="flex-1 sm:flex-none justify-center bg-amber-600 hover:bg-amber-700 text-[#EADDC5] px-4 sm:px-5 py-2 sm:py-2.5 rounded-2xl text-xs sm:text-sm font-medium transition-colors shadow-ios-sm">
-                        Start Preparing
-                      </button>
-                    )}
-                    {order.status === 'preparing' && order.type === 'pickup' && (
-                      <button onClick={() => updateOrderStatus(order.id, 'ready')} className="flex-1 sm:flex-none justify-center bg-emerald-600 hover:bg-emerald-700 text-[#EADDC5] px-4 sm:px-5 py-2 sm:py-2.5 rounded-2xl text-xs sm:text-sm font-medium transition-colors shadow-ios-sm">
-                        Mark Ready for Pickup
-                      </button>
-                    )}
-                    {order.status === 'preparing' && order.type === 'delivery' && (
-                      <button onClick={() => updateOrderStatus(order.id, 'out_for_delivery')} className="flex-1 sm:flex-none justify-center bg-purple-600 hover:bg-purple-700 text-[#EADDC5] px-4 sm:px-5 py-2 sm:py-2.5 rounded-2xl text-xs sm:text-sm font-medium transition-colors shadow-ios-sm">
-                        Out for Delivery
-                      </button>
-                    )}
-                    {(order.status === 'ready' || order.status === 'out_for_delivery') && (
-                      <button onClick={() => updateOrderStatus(order.id, 'completed')} className="flex-1 sm:flex-none justify-center bg-black hover:bg-gray-900 text-[#EADDC5] px-4 sm:px-5 py-2 sm:py-2.5 rounded-2xl text-xs sm:text-sm font-medium transition-colors shadow-ios-sm">
-                        Complete Order
-                      </button>
-                    )}
-                    <button onClick={() => updateOrderStatus(order.id, 'cancelled')} className="flex-1 sm:flex-none justify-center text-red-600 hover:bg-red-50 px-4 sm:px-5 py-2 sm:py-2.5 rounded-2xl text-xs sm:text-sm font-medium transition-colors sm:ml-auto border border-red-100 sm:border-transparent">
-                      Cancel Order
-                    </button>
-                    {['admin', 'restaurant_owner', 'manager'].includes(userProfile.role) && order.paymentIntentId && ['paid', 'partially_refunded'].includes(order.paymentStatus || '') && (
-                      <button onClick={() => handleRefund(order)} className="flex-1 sm:flex-none justify-center text-amber-600 hover:bg-amber-50 px-4 sm:px-5 py-2 sm:py-2.5 rounded-2xl text-xs sm:text-sm font-medium transition-colors border border-amber-100 sm:border-transparent flex items-center gap-1">
-                        <RefreshCw size={14} /> Refund
-                      </button>
-                    )}
-                  </div>
-                </motion.div>
-              ))}
-            </AnimatePresence>
-          )}
-        </div>
-
-        {/* Past Orders */}
-        <div className="space-y-4 sm:space-y-6">
-          <h2 className="text-2xl sm:text-3xl font-bold text-black flex items-center gap-2 sm:gap-3 mb-4 sm:mb-8">
-            <CheckCircle className="text-gray-400 w-6 h-6 sm:w-7 sm:h-7" /> Recent History
-          </h2>
-          <div className="bg-white rounded-[2rem] shadow-ios-sm border border-gray-100 overflow-hidden">
-            {pastOrders.length === 0 ? (
-              <div className="p-8 sm:p-12 text-center text-gray-500 text-base sm:text-lg">No past orders found.</div>
-            ) : (
-              <div className="divide-y divide-gray-100">
-                {pastOrders.slice(0, 15).map(order => (
-                  <div key={order.id} className="p-4 sm:p-6 hover:bg-gray-50 transition-colors flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <div className="min-w-0 w-full sm:w-auto">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h4 className="font-bold text-black text-base sm:text-lg truncate">#{order.id.slice(-6).toUpperCase()}</h4>
-                        <span className={`shrink-0 px-2 py-0.5 sm:px-3 sm:py-1 rounded-xl text-[10px] sm:text-xs font-bold uppercase tracking-wider ${order.status === 'completed' ? 'bg-gray-100 text-gray-600' : 'bg-red-100 text-red-600'}`}>
-                          {order.status}
-                        </span>
-                        {order.paymentStatus === 'refunded' && (
-                          <span className="shrink-0 px-2 py-0.5 sm:px-3 sm:py-1 rounded-xl text-[10px] sm:text-xs font-bold uppercase tracking-wider bg-red-50 text-red-700 border border-red-200">
-                            Refunded
-                          </span>
-                        )}
-                        {order.paymentStatus === 'partially_refunded' && (
-                          <span className="shrink-0 px-2 py-0.5 sm:px-3 sm:py-1 rounded-xl text-[10px] sm:text-xs font-bold uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200">
-                            Part. Refunded (${order.refundAmount?.toFixed(2)})
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs sm:text-sm text-gray-500 mt-0.5 sm:mt-1 truncate">{order.customerName} &bull; ${order.total.toFixed(2)}</p>
-                      {order.notes && (
-                        <p className="text-xs sm:text-sm text-gray-600 mt-1 truncate"><span className="font-bold">Notes:</span> {order.notes}</p>
-                      )}
-                    </div>
-                    {['admin', 'restaurant_owner', 'manager'].includes(userProfile.role) && order.paymentIntentId && ['paid', 'partially_refunded'].includes(order.paymentStatus || '') && (
-                      <button onClick={() => handleRefund(order)} className="shrink-0 text-amber-600 hover:bg-amber-50 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors border border-amber-100 flex items-center gap-1">
-                        <RefreshCw size={14} /> Refund
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
+            {item.selectedModifiers?.length > 0 && (
+              <p className="text-xs text-gray-600 pl-6">{groupModifiers(item.selectedModifiers)}</p>
             )}
-          </div>
+            {item.prepNotes && <p className="text-xs font-semibold text-red-700 pl-6">“{item.prepNotes}”</p>}
+          </li>
+        ))}
+      </ul>
+
+      {order.notes && (
+        <p className="text-sm bg-red-50 border border-red-100 text-red-800 rounded-xl px-3 py-2 flex gap-2">
+          <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+          <span>{order.notes}</span>
+        </p>
+      )}
+
+      {order.cancelReason && order.status === 'cancelled' && <p className="text-xs text-gray-500">Cancelled by {order.cancelledBy || 'staff'}: {order.cancelReason}</p>}
+      {order.paymentCollectedBy && order.paymentStatus === 'paid' && order.paymentMethod === 'cash' && (
+        <p className="text-xs text-emerald-700">Cash collected by {order.paymentCollectedBy}{order.paidAt ? ` · ${formatDateTime(order.paidAt, { timeStyle: 'short' })}` : ''}</p>
+      )}
+
+      <footer className="flex flex-wrap gap-2 pt-1">
+        {step && order.status !== 'payment_pending' && (
+          <button onClick={() => onAdvance(order)} className="flex-1 min-w-[150px] bg-gray-900 hover:bg-black text-white rounded-2xl px-4 py-3 text-sm font-bold">
+            {step.status === 'completed' && cashDue ? `Collect ${formatMoney(order.total)} & complete` : step.label}
+          </button>
+        )}
+        {cashDue && step?.status !== 'completed' && (
+          <button onClick={() => onCollectCash(order)} className="flex items-center gap-1.5 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-2xl px-4 py-3 text-sm font-bold">
+            <Banknote size={16} /> Mark paid (cash)
+          </button>
+        )}
+        {order.paymentMethod === 'cash' && order.paymentStatus === 'paid' && order.status !== 'cancelled' && (
+          <button onClick={() => onUndoCash(order)} className="flex items-center gap-1.5 text-gray-600 hover:bg-gray-100 rounded-2xl px-3 py-3 text-sm font-semibold" title="Undo cash payment">
+            <Undo2 size={15} /> Undo paid
+          </button>
+        )}
+        {order.status === 'payment_pending' && (
+          <button onClick={() => onCheckPayment(order)} className="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 rounded-2xl px-4 py-3 text-sm font-semibold">
+            <RefreshCw size={15} /> Check payment
+          </button>
+        )}
+        {canRefund && (
+          <button onClick={() => onRefund(order)} className="flex items-center gap-1.5 text-amber-700 hover:bg-amber-50 rounded-2xl px-3 py-3 text-sm font-semibold">
+            <RefreshCw size={15} /> Refund
+          </button>
+        )}
+        {!['completed', 'cancelled'].includes(order.status) && (
+          <button onClick={() => onCancel(order)} className="flex items-center gap-1.5 text-red-600 hover:bg-red-50 rounded-2xl px-3 py-3 text-sm font-semibold ml-auto">
+            <XCircle size={15} /> Cancel
+          </button>
+        )}
+      </footer>
+    </article>
+  );
+}
+
+export const AdminDashboard: React.FC = () => {
+  const { isManager } = useAuth();
+  const actions = useOrderActions();
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<Filter>('active');
+  const [search, setSearch] = useState('');
+
+  const [cashOrder, setCashOrder] = useState<{ order: Order; complete: boolean } | null>(null);
+  const [cancelOrder, setCancelOrder] = useState<Order | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [refundOrder, setRefundOrder] = useState<Order | null>(null);
+  const [refundAmount, setRefundAmount] = useState('');
+  const [working, setWorking] = useState(false);
+
+  useEffect(() => {
+    // Live window of the last 30 days (single-field range query: no composite index).
+    const since = Timestamp.fromMillis(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const unsub = onSnapshot(
+      query(collection(db, 'orders'), where('createdAt', '>=', since), orderBy('createdAt', 'desc')),
+      (snap) => {
+        setOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Order));
+        setLoading(false);
+      },
+      (err) => {
+        reportError(err, 'dashboard-orders');
+        setLoading(false);
+      },
+    );
+    return () => unsub();
+  }, []);
+
+  const counts = useMemo(() => {
+    const c = { active: 0, completed: 0, cancelled: 0, unpaid: 0, all: 0 };
+    for (const o of orders) {
+      if (o.status === 'payment_pending') continue;
+      c.all++;
+      if (ACTIVE_STATUSES.includes(o.status)) c.active++;
+      if (o.status === 'completed') c.completed++;
+      if (o.status === 'cancelled') c.cancelled++;
+      if (isCashDue(o)) c.unpaid++;
+    }
+    return c;
+  }, [orders]);
+
+  const today = useMemo(() => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const list = orders.filter((o) => toMillis(o.createdAt, Date.now()) >= start.getTime() && !['payment_pending', 'cancelled'].includes(o.status));
+    const sales = list.reduce((sum, o) => sum + toCents(o.total) - toCents(o.refundAmount || 0), 0);
+    const cashOutstanding = orders.filter(isCashDue).reduce((sum, o) => sum + toCents(o.total), 0);
+    return { count: list.length, sales: fromCents(sales), cashOutstanding: fromCents(cashOutstanding) };
+  }, [orders]);
+
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return orders
+      .filter((o) => {
+        if (o.status === 'payment_pending') return false;
+        if (filter === 'active' && !ACTIVE_STATUSES.includes(o.status)) return false;
+        if (filter === 'completed' && o.status !== 'completed') return false;
+        if (filter === 'cancelled' && o.status !== 'cancelled') return false;
+        if (filter === 'unpaid' && !isCashDue(o)) return false;
+        if (!q) return true;
+        return (
+          orderCode(o).toLowerCase().includes(q) ||
+          o.id.toLowerCase().includes(q) ||
+          o.customerName?.toLowerCase().includes(q) ||
+          o.customerPhone?.includes(q) ||
+          o.items.some((i) => i.name.toLowerCase().includes(q))
+        );
+      })
+      .sort((a, b) =>
+        filter === 'active' ? toMillis(a.createdAt, Date.now()) - toMillis(b.createdAt, Date.now()) : toMillis(b.createdAt, Date.now()) - toMillis(a.createdAt, Date.now()),
+      );
+  }, [orders, filter, search]);
+
+  const advance = (order: Order) => {
+    const step = nextStep(order);
+    if (!step) return;
+    if (step.status === 'completed' && isCashDue(order)) {
+      setCashOrder({ order, complete: true });
+      return;
+    }
+    actions.setStatus(order, step.status);
+  };
+
+  const confirmCash = async () => {
+    if (!cashOrder) return;
+    setWorking(true);
+    await actions.markCashPaid(cashOrder.order, cashOrder.complete);
+    setWorking(false);
+    setCashOrder(null);
+  };
+
+  const confirmCancel = async () => {
+    if (!cancelOrder) return;
+    setWorking(true);
+    try {
+      const res = await api.cancel(cancelOrder.id, cancelReason.trim() || undefined);
+      toast.success(res.refunded ? `Cancelled and refunded #${orderCode(cancelOrder)}` : `Cancelled #${orderCode(cancelOrder)}`);
+      setCancelOrder(null);
+      setCancelReason('');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Could not cancel the order.');
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const refundable = refundOrder ? fromCents(toCents(refundOrder.total) - toCents(refundOrder.refundAmount || 0)) : 0;
+  const confirmRefund = async () => {
+    if (!refundOrder) return;
+    const amount = Number(refundAmount);
+    if (!(amount > 0) || amount > refundable) {
+      toast.error(`Enter an amount between $0.01 and ${formatMoney(refundable)}.`);
+      return;
+    }
+    setWorking(true);
+    try {
+      const res = await api.refund(refundOrder.id, amount);
+      toast.success(`Refunded ${formatMoney(amount)} · ${res.paymentStatus === 'refunded' ? 'fully refunded' : 'partial refund'}`);
+      setRefundOrder(null);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Refund failed.');
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const checkPayment = async (order: Order) => {
+    try {
+      const res = await api.confirmPayment(order.id);
+      toast(res.paid ? 'Payment confirmed — order sent to the kitchen.' : `Not paid yet (${res.stripeStatus || 'no payment'}).`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not check the payment.');
+    }
+  };
+
+  if (loading) return <PageSpinner label="Loading orders…" />;
+
+  const filters: { id: Filter; label: string; count?: number }[] = [
+    { id: 'active', label: 'Active', count: counts.active },
+    { id: 'unpaid', label: 'Cash due', count: counts.unpaid },
+    { id: 'completed', label: 'Completed', count: counts.completed },
+    { id: 'cancelled', label: 'Cancelled', count: counts.cancelled },
+    { id: 'all', label: 'All' },
+  ];
+
+  return (
+    <div className="space-y-5">
+      <StoreControls />
+
+      <div className="grid grid-cols-3 gap-2 sm:gap-4">
+        <div className="bg-white rounded-2xl border border-gray-100 p-3 sm:p-4">
+          <p className="text-[11px] sm:text-xs font-semibold uppercase tracking-wide text-gray-500">Orders today</p>
+          <p className="text-xl sm:text-3xl font-extrabold">{today.count}</p>
+        </div>
+        <div className="bg-white rounded-2xl border border-gray-100 p-3 sm:p-4">
+          <p className="text-[11px] sm:text-xs font-semibold uppercase tracking-wide text-gray-500">Sales today</p>
+          <p className="text-xl sm:text-3xl font-extrabold">{formatMoney(today.sales)}</p>
+        </div>
+        <button onClick={() => setFilter('unpaid')} className="text-left bg-amber-50 rounded-2xl border border-amber-200 p-3 sm:p-4">
+          <p className="text-[11px] sm:text-xs font-semibold uppercase tracking-wide text-amber-800">Cash to collect</p>
+          <p className="text-xl sm:text-3xl font-extrabold text-amber-900">{formatMoney(today.cashOutstanding)}</p>
+        </button>
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+        <div className="flex gap-1.5 overflow-x-auto hide-scrollbar">
+          {filters.map((f) => (
+            <button
+              key={f.id}
+              onClick={() => setFilter(f.id)}
+              className={`shrink-0 px-3.5 py-2 rounded-full text-sm font-semibold transition ${filter === f.id ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-700'}`}
+            >
+              {f.label}
+              {f.count !== undefined && <span className="ml-1.5 opacity-70">{f.count}</span>}
+            </button>
+          ))}
+        </div>
+        <div className="relative sm:ml-auto sm:w-72">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search order, name, phone, item" className={`${adminInput} pl-9`} />
         </div>
       </div>
 
-      {/* Refund Modal */}
-      {refundModal.isOpen && refundModal.order && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-[2rem] p-6 sm:p-8 max-w-md w-full shadow-ios-lg">
-            <h3 className="text-2xl font-bold text-black mb-4">Process Refund</h3>
-            <p className="text-gray-500 mb-6">
-              Enter the amount to refund for Order #{refundModal.order.id.slice(-6).toUpperCase()}.
-              <br />
-              <span className="text-sm font-medium text-gray-700">Max available: ${refundModal.order.total.toFixed(2)}</span>
-            </p>
-            
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Refund Amount ($)</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0.01"
-                max={refundModal.order.total}
-                value={refundModal.amount}
-                onChange={(e) => setRefundModal({ ...refundModal, amount: e.target.value })}
-                className="w-full border border-gray-200 rounded-2xl p-3 focus:ring-2 focus:ring-black focus:border-black outline-none"
-              />
-            </div>
-
-            <div className="flex gap-4">
-              <button
-                onClick={() => setRefundModal({ isOpen: false, order: null, amount: '' })}
-                className="flex-1 px-4 py-3 rounded-2xl font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmRefund}
-                className="flex-1 px-4 py-3 rounded-2xl font-medium text-[#EADDC5] bg-amber-600 hover:bg-amber-700 transition-colors shadow-ios-sm"
-              >
-                Confirm Refund
-              </button>
-            </div>
-          </div>
+      {visible.length === 0 ? (
+        <div className="bg-white rounded-3xl border border-dashed border-gray-200 p-10 text-center text-gray-500">
+          {filter === 'active' ? 'No active orders right now. New orders will appear here instantly.' : 'No orders match this view.'}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+          {visible.map((order) => (
+            <OrderCard
+              key={order.id}
+              order={order}
+              isManager={isManager}
+              onAdvance={advance}
+              onCollectCash={(o) => setCashOrder({ order: o, complete: false })}
+              onUndoCash={actions.undoCashPaid}
+              onCancel={(o) => {
+                setCancelReason('');
+                setCancelOrder(o);
+              }}
+              onRefund={(o) => {
+                setRefundOrder(o);
+                setRefundAmount(fromCents(toCents(o.total) - toCents(o.refundAmount || 0)).toFixed(2));
+              }}
+              onCheckPayment={checkPayment}
+            />
+          ))}
         </div>
       )}
+
+      {isManager && (
+        <Suspense fallback={<div className="flex justify-center py-10 text-gray-400"><Spinner /></div>}>
+          <AdminFinancials orders={orders} />
+        </Suspense>
+      )}
+
+      <ConfirmDialog
+        open={!!cashOrder}
+        busy={working}
+        title={cashOrder?.complete ? 'Collect cash & complete' : 'Record cash payment'}
+        message={
+          cashOrder && (
+            <>
+              Collect <strong className="text-gray-900 text-base">{formatMoney(cashOrder.order.total)}</strong> in cash from {cashOrder.order.customerName || 'the customer'} for order #
+              {orderCode(cashOrder.order)}. This records the payment under your name.
+            </>
+          )
+        }
+        confirmLabel={cashOrder?.complete ? 'Cash received · Complete' : 'Cash received'}
+        onCancel={() => setCashOrder(null)}
+        onConfirm={confirmCash}
+      />
+
+      <ConfirmDialog
+        open={!!cancelOrder}
+        busy={working}
+        danger
+        title={`Cancel order #${cancelOrder ? orderCode(cancelOrder) : ''}?`}
+        message={
+          cancelOrder &&
+          (cancelOrder.paymentMethod !== 'cash' && ['paid', 'partially_refunded'].includes(cancelOrder.paymentStatus || '')
+            ? `The customer will automatically be refunded ${formatMoney(fromCents(toCents(cancelOrder.total) - toCents(cancelOrder.refundAmount || 0)))} to their card.`
+            : cancelOrder.paymentMethod === 'cash' && cancelOrder.paymentStatus === 'paid'
+              ? 'This cash order was already paid. Remember to return the cash to the customer.'
+              : 'The customer will see that the order was cancelled.')
+        }
+        confirmLabel="Cancel order"
+        cancelLabel="Keep order"
+        onCancel={() => setCancelOrder(null)}
+        onConfirm={confirmCancel}
+      >
+        <input value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Reason (shown to the customer)" className={`${adminInput} mt-4`} maxLength={300} />
+      </ConfirmDialog>
+
+      <Sheet
+        open={!!refundOrder}
+        onClose={() => !working && setRefundOrder(null)}
+        surface="admin"
+        size="sm"
+        title={`Refund #${refundOrder ? orderCode(refundOrder) : ''}`}
+        footer={
+          <div className="flex gap-3">
+            <button onClick={() => setRefundOrder(null)} disabled={working} className="flex-1 py-3 rounded-2xl bg-gray-100 font-semibold">
+              Cancel
+            </button>
+            <button onClick={confirmRefund} disabled={working} className="flex-1 py-3 rounded-2xl bg-amber-600 text-white font-semibold flex items-center justify-center gap-2">
+              {working && <Spinner size={16} />} Refund
+            </button>
+          </div>
+        }
+      >
+        <div className="p-5 space-y-3 text-sm text-gray-600">
+          <p>
+            Paid {formatMoney(refundOrder?.total)}
+            {refundOrder?.refundAmount ? `, already refunded ${formatMoney(refundOrder.refundAmount)}` : ''}. You can refund up to{' '}
+            <strong className="text-gray-900">{formatMoney(refundable)}</strong>.
+          </p>
+          <div className="relative">
+            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+            <input type="number" inputMode="decimal" step="0.01" min="0.01" max={refundable} value={refundAmount} onChange={(e) => setRefundAmount(e.target.value)} className={`${adminInput} pl-7`} />
+          </div>
+          <div className="flex gap-2">
+            {[0.25, 0.5, 1].map((f) => (
+              <button key={f} type="button" onClick={() => setRefundAmount((refundable * f).toFixed(2))} className="px-3 py-1.5 rounded-xl bg-gray-100 text-xs font-semibold">
+                {f === 1 ? 'Full' : `${f * 100}%`}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs">A full refund of an unfinished order also cancels it.</p>
+        </div>
+      </Sheet>
     </div>
   );
 };

@@ -4,44 +4,53 @@ service cloud.firestore {
 
     // ===============================================================
     // Helper Functions
+    //
+    // The caller's role is looked up ONCE per request (role()) and passed into the
+    // checks below. Firestore stops evaluating a rule after 1,000 expressions, so the
+    // rules avoid re-reading the user document in chained helpers.
     // ===============================================================
     function isAuthenticated() {
       return request.auth != null;
     }
 
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
+    function isBootstrapAdmin() {
+      // .get() with defaults: tokens without an email (e.g. phone sign-in) must not error.
+      return request.auth.token.get('email', '') == "godsonj64@gmail.com" && request.auth.token.get('email_verified', false) == true;
     }
 
-    function getUserRole() {
-      return exists(/databases/$(database)/documents/users/$(request.auth.uid)) ? 
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role : 'customer';
+    function role() {
+      return !isAuthenticated() ? 'anonymous' :
+             isBootstrapAdmin() ? 'admin' :
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) ?
+               get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role : 'customer';
     }
 
-    function isAdmin() {
-      return isAuthenticated() &&
-        (getUserRole() == 'admin' ||
-         (request.auth.token.email == "godsonj64@gmail.com" && request.auth.token.email_verified == true));
+    function isOwnerRole(r) {
+      return r in ['admin', 'restaurant_owner'];
     }
 
-    function isAtLeastOwner() {
-      return isAdmin() || getUserRole() == 'restaurant_owner';
+    function isManagerRole(r) {
+      return r in ['admin', 'restaurant_owner', 'manager'];
     }
 
-    function isAtLeastManager() {
-      return isAtLeastOwner() || getUserRole() == 'manager';
-    }
-
-    function isAtLeastStaff() {
-      return isAtLeastManager() || getUserRole() == 'staff';
-    }
-
-    function isDriver() {
-      return isAuthenticated() && getUserRole() == 'driver';
+    function isStaffRole(r) {
+      return r in ['admin', 'restaurant_owner', 'manager', 'staff'];
     }
 
     function isValidEmail(email) {
       return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function optString(data, field, max) {
+      return !(field in data) || (data[field] is string && data[field].size() <= max);
+    }
+
+    function optNumberMin(data, field, min) {
+      return !(field in data) || (data[field] is number && data[field] >= min);
+    }
+
+    function optBool(data, field) {
+      return !(field in data) || data[field] is bool;
     }
 
     // ===============================================================
@@ -53,42 +62,66 @@ service cloud.firestore {
              data.uid is string && data.uid.size() > 0 && data.uid.size() < 100 &&
              data.email is string && isValidEmail(data.email) && data.email.size() < 150 &&
              data.role in ['admin', 'restaurant_owner', 'manager', 'staff', 'driver', 'customer'] &&
-             (!('name' in data) || (data.name is string && data.name.size() <= 100)) &&
-             (!('phone' in data) || (data.phone is string && data.phone.size() <= 20)) &&
+             optString(data, 'name', 100) &&
+             optString(data, 'phone', 20) &&
              (!('savedAddresses' in data) || (data.savedAddresses is list && data.savedAddresses.size() <= 10)) &&
-             (!('totalOrders' in data) || (data.totalOrders is number && data.totalOrders >= 0)) &&
-             (!('totalSpent' in data) || (data.totalSpent is number && data.totalSpent >= 0)) &&
-             (!('lastOrderDate' in data) || (data.lastOrderDate is timestamp)) &&
-             (!('createdAt' in data) || (data.createdAt is timestamp));
+             optNumberMin(data, 'totalOrders', 0) &&
+             (!('totalSpent' in data) || data.totalSpent is number) &&
+             (!('loyaltyPoints' in data) || data.loyaltyPoints is number) &&
+             (!('lastOrderDate' in data) || data.lastOrderDate is timestamp) &&
+             (!('createdAt' in data) || data.createdAt is timestamp);
     }
 
     function isValidRestaurantProfile(data) {
       return data.keys().hasAll(['name', 'isAcceptingOrders']) &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.isAcceptingOrders is bool &&
-             (!('description' in data) || (data.description is string && data.description.size() <= 1000)) &&
-             (!('address' in data) || (data.address is string && data.address.size() <= 200)) &&
-             (!('phone' in data) || (data.phone is string && data.phone.size() <= 20)) &&
-             (!('email' in data) || (data.email is string && data.email.size() <= 150)) &&
-             (!('deliveryFee' in data) || (data.deliveryFee is number && data.deliveryFee >= 0)) &&
-             (!('minimumOrder' in data) || (data.minimumOrder is number && data.minimumOrder >= 0)) &&
-             (!('promotionalZeroFee' in data) || (data.promotionalZeroFee is bool)) &&
+             optString(data, 'description', 1000) &&
+             optString(data, 'address', 200) &&
+             optString(data, 'phone', 20) &&
+             optString(data, 'email', 150) &&
+             optNumberMin(data, 'deliveryFee', 0) &&
+             optNumberMin(data, 'freeDeliveryThreshold', 0) &&
+             optNumberMin(data, 'minimumOrder', 0) &&
+             (!('serviceFeePercent' in data) || (data.serviceFeePercent is number && data.serviceFeePercent >= 0 && data.serviceFeePercent <= 30)) &&
+             (!('taxRate' in data) || (data.taxRate is number && data.taxRate >= 0 && data.taxRate <= 30)) &&
+             optBool(data, 'promotionalZeroFee') &&
+             optBool(data, 'isDeliveryEnabled') &&
+             optBool(data, 'isPickupEnabled') &&
+             optBool(data, 'isSchedulePickupEnabled') &&
+             optBool(data, 'isCardPaymentEnabled') &&
+             optBool(data, 'isCashPaymentEnabled') &&
+             optBool(data, 'isTippingEnabled') &&
+             (!('scheduleDaysAhead' in data) || (data.scheduleDaysAhead is number && data.scheduleDaysAhead >= 1 && data.scheduleDaysAhead <= 30)) &&
+             isValidOperations(data) &&
+             optString(data, 'timezone', 64) &&
              (!('logoUrl' in data) || (data.logoUrl is string && data.logoUrl.size() <= 1048576)) &&
              (!('bannerUrl' in data) || (data.bannerUrl is string && data.bannerUrl.size() <= 1048576)) &&
-             (!('isDeliveryEnabled' in data) || (data.isDeliveryEnabled is bool)) &&
-             (!('isPickupEnabled' in data) || (data.isPickupEnabled is bool)) &&
-             (!('taxRate' in data) || (data.taxRate is number && data.taxRate >= 0)) &&
              (!('businessHours' in data) || (data.businessHours is map)) &&
-             (!('isMarqueeEnabled' in data) || (data.isMarqueeEnabled is bool)) &&
-             (!('marqueeText' in data) || (data.marqueeText is string && data.marqueeText.size() <= 500)) &&
-             (!('marqueeImageUrl' in data) || (data.marqueeImageUrl is string && data.marqueeImageUrl.size() <= 1048576));
+             optBool(data, 'isMarqueeEnabled') &&
+             optString(data, 'marqueeText', 500) &&
+             (!('marqueeImageUrl' in data) || (data.marqueeImageUrl is string && data.marqueeImageUrl.size() <= 1048576)) &&
+             (!('marqueeImageUrls' in data) || (data.marqueeImageUrls is list && data.marqueeImageUrls.size() <= 12)) &&
+             optBool(data, 'isGalleryEnabled') &&
+             (!('galleryImageUrls' in data) || (data.galleryImageUrls is list && data.galleryImageUrls.size() <= 12)) &&
+             (!('theme' in data) || data.theme is map) &&
+             (!('social' in data) || data.social is map);
+    }
+
+    // Fields kitchen staff may change from the dashboard (busy mode, wait time).
+    function isValidOperations(data) {
+      return data.isAcceptingOrders is bool &&
+             (!('estimatedPrepMinutes' in data) || (data.estimatedPrepMinutes is number && data.estimatedPrepMinutes >= 0 && data.estimatedPrepMinutes <= 240)) &&
+             (!('pausedUntil' in data) || data.pausedUntil == null || data.pausedUntil is timestamp);
     }
 
     function isValidCategory(data) {
       return data.keys().hasAll(['name', 'displayOrder', 'active']) &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.displayOrder is number &&
-             data.active is bool;
+             data.active is bool &&
+             (!('imageUrl' in data) || data.imageUrl == null || (data.imageUrl is string && data.imageUrl.size() <= 1048576)) &&
+             optString(data, 'description', 300);
     }
 
     function isValidMenuItem(data) {
@@ -97,46 +130,32 @@ service cloud.firestore {
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.basePrice is number && data.basePrice >= 0 &&
              data.active is bool &&
-             (!('description' in data) || (data.description is string && data.description.size() <= 1000)) &&
+             optBool(data, 'isSoldOut') &&
+             optBool(data, 'isFeatured') &&
+             (!('displayOrder' in data) || data.displayOrder is number) &&
+             optString(data, 'description', 1000) &&
              (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 1048576)) &&
              (!('dietaryTags' in data) || (data.dietaryTags is list && data.dietaryTags.size() <= 10)) &&
              (!('preparationTime' in data) || (data.preparationTime is number)) &&
              (!('calories' in data) || (data.calories is number)) &&
-             (!('rating' in data) || (data.rating is number)) &&
-             (!('ratingCount' in data) || (data.ratingCount is number)) &&
              (!('modifierGroups' in data) || (data.modifierGroups is list && data.modifierGroups.size() <= 20)) &&
              (!('sizeVariants' in data) || (data.sizeVariants is list && data.sizeVariants.size() <= 10));
     }
 
-    function isValidOrder(data) {
-      return data.keys().hasAll(['customerId', 'items', 'status', 'total', 'type', 'createdAt']) &&
-             data.customerId is string && data.customerId.size() > 0 && data.customerId.size() < 100 &&
-             data.items is list && data.items.size() > 0 && data.items.size() <= 50 &&
-             data.status in ['payment_pending', 'new', 'confirmed', 'preparing', 'ready', 'out_for_delivery', 'completed', 'cancelled'] &&
-             data.total is number && data.total >= 0 &&
-             data.type in ['pickup', 'delivery'] &&
-             data.createdAt is timestamp &&
-             (!('customerName' in data) || (data.customerName is string && data.customerName.size() <= 100)) &&
-             (!('customerEmail' in data) || (data.customerEmail is string && data.customerEmail.size() <= 150)) &&
-             (!('customerPhone' in data) || (data.customerPhone is string && data.customerPhone.size() <= 20)) &&
-             (!('subtotal' in data) || (data.subtotal is number && data.subtotal >= 0)) &&
-             (!('deliveryFee' in data) || (data.deliveryFee is number && data.deliveryFee >= 0)) &&
-             (!('serviceFee' in data) || (data.serviceFee is number && data.serviceFee >= 0)) &&
-             (!('promoCode' in data) || (data.promoCode is string && data.promoCode.size() <= 50)) &&
-             (!('discountAmount' in data) || (data.discountAmount is number && data.discountAmount >= 0)) &&
-             (!('deliveryAddress' in data) || (data.deliveryAddress is string && data.deliveryAddress.size() <= 500)) &&
-             (!('scheduledTime' in data) || (data.scheduledTime is string && data.scheduledTime.size() <= 100)) &&
-             (!('paymentStatus' in data) || (data.paymentStatus in ['pending', 'paid', 'failed', 'refunded', 'partially_refunded'])) &&
-             (!('paymentIntentId' in data) || (data.paymentIntentId is string && data.paymentIntentId.size() <= 100)) &&
-             (!('refundAmount' in data) || (data.refundAmount is number && data.refundAmount >= 0)) &&
-             (!('updatedAt' in data) || (data.updatedAt is timestamp)) &&
-             (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000)) &&
-             (!('rating' in data) || (data.rating is number && data.rating >= 1 && data.rating <= 5)) &&
-             (!('ratingComment' in data) || (data.ratingComment is string && data.ratingComment.size() <= 1000)) &&
-             (!('driverId' in data) || (data.driverId is string && data.driverId.size() <= 100)) &&
-             (!('driverName' in data) || (data.driverName is string && data.driverName.size() <= 100)) &&
-             (!('deliveryStatus' in data) || (data.deliveryStatus in ['pending', 'assigned', 'picked_up', 'delivered'])) &&
-             (!('proofOfDeliveryImage' in data) || (data.proofOfDeliveryImage is string && data.proofOfDeliveryImage.size() <= 3000000));
+    // Orders are created by the server, so updates only need to validate the fields
+    // that staff and drivers are allowed to change.
+    function isValidOrderPatch(d) {
+      return d.status in ['payment_pending', 'new', 'confirmed', 'preparing', 'ready', 'out_for_delivery', 'completed', 'cancelled'] &&
+             (!('paymentStatus' in d) || d.paymentStatus in ['pending', 'paid', 'failed', 'refunded', 'partially_refunded']) &&
+             (!('paidAt' in d) || d.paidAt is timestamp) &&
+             optString(d, 'paymentCollectedBy', 100) &&
+             optString(d, 'driverId', 100) &&
+             optString(d, 'driverName', 100) &&
+             (!('deliveryStatus' in d) || d.deliveryStatus in ['pending', 'assigned', 'picked_up', 'delivered']) &&
+             (!('proofOfDeliveryImage' in d) || (d.proofOfDeliveryImage is string && d.proofOfDeliveryImage.size() <= 1048576)) &&
+             optString(d, 'cancelReason', 300) &&
+             (!('cancelledBy' in d) || d.cancelledBy in ['customer', 'staff', 'system']) &&
+             (!('updatedAt' in d) || d.updatedAt is timestamp);
     }
 
     function isValidPromoCode(data) {
@@ -144,107 +163,183 @@ service cloud.firestore {
              data.id is string && data.id.size() > 0 && data.id.size() <= 50 &&
              data.discountType in ['percentage', 'fixed'] &&
              data.discountValue is number && data.discountValue > 0 &&
+             (data.discountType != 'percentage' || data.discountValue <= 100) &&
              data.active is bool &&
              data.usedCount is number && data.usedCount >= 0 &&
              data.usedBy is list &&
              data.createdAt is timestamp &&
              (!('expiresAt' in data) || (data.expiresAt is timestamp)) &&
              (!('usageLimit' in data) || (data.usageLimit is number && data.usageLimit > 0)) &&
-             (!('assignedTo' in data) || (data.assignedTo is list));
+             (!('assignedTo' in data) || (data.assignedTo is list)) &&
+             optNumberMin(data, 'minOrders', 0) &&
+             optNumberMin(data, 'minSpent', 0) &&
+             optNumberMin(data, 'minSubtotal', 0) &&
+             optString(data, 'description', 200);
     }
 
     // ===============================================================
-    // Rules
+    // Users
     // ===============================================================
 
-    function canUpdateRole(newRole, oldRole) {
-      return newRole == oldRole || 
-             isAdmin() || 
-             (isAtLeastOwner() && newRole in ['manager', 'staff', 'driver', 'customer'] && oldRole in ['manager', 'staff', 'driver', 'customer']) ||
-             (isAtLeastManager() && newRole in ['staff', 'driver', 'customer'] && oldRole in ['staff', 'driver', 'customer']);
+    function canUpdateRole(r, newRole, oldRole) {
+      return newRole == oldRole ||
+             r == 'admin' ||
+             (isOwnerRole(r) && newRole in ['manager', 'staff', 'driver', 'customer'] && oldRole in ['manager', 'staff', 'driver', 'customer']) ||
+             (isManagerRole(r) && newRole in ['staff', 'driver', 'customer'] && oldRole in ['staff', 'driver', 'customer']);
     }
 
-    function customerUnchangedFields() {
-      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['createdAt', 'email', 'uid']);
+    function canCreateUser(r, userId) {
+      let d = request.resource.data;
+      return isAuthenticated() && isValidUser(d) && d.uid == userId &&
+             (
+               // Self sign-up: always a customer with zeroed statistics.
+               (request.auth.uid == userId && d.role == 'customer' &&
+                 d.get('totalOrders', 0) == 0 && d.get('totalSpent', 0) == 0 && d.get('loyaltyPoints', 0) == 0) ||
+               r == 'admin' ||
+               (isOwnerRole(r) && d.role in ['manager', 'staff', 'driver', 'customer']) ||
+               (isManagerRole(r) && d.role in ['staff', 'driver', 'customer'])
+             );
+    }
+
+    // Customers can only edit their contact details. Order statistics, loyalty points
+    // and roles are maintained by the server / managers.
+    function canUpdateUser(r, userId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return isAuthenticated() && isValidUser(request.resource.data) &&
+             (
+               (request.auth.uid == userId && changed.hasOnly(['name', 'phone', 'savedAddresses'])) ||
+               (isManagerRole(r) && canUpdateRole(r, request.resource.data.role, resource.data.role) &&
+                 !changed.hasAny(['uid', 'createdAt']))
+             );
     }
 
     match /users/{userId} {
-      allow read: if isOwner(userId) || isAtLeastStaff() || (isAuthenticated() && getUserRole() == 'driver' && isOwner(userId));
-      allow create: if isAuthenticated() && isValidUser(request.resource.data) &&
-                    (
-                      (isOwner(userId) && request.resource.data.role == 'customer') || 
-                      isAdmin() ||
-                      (isAtLeastOwner() && request.resource.data.role in ['manager', 'staff', 'driver', 'customer']) ||
-                      (isAtLeastManager() && request.resource.data.role in ['staff', 'driver', 'customer'])
-                    );
-      allow update: if isAuthenticated() && isValidUser(request.resource.data) &&
-                    (
-                      (isOwner(userId) && canUpdateRole(request.resource.data.role, resource.data.role) && customerUnchangedFields()) ||
-                      (isAtLeastManager() && canUpdateRole(request.resource.data.role, resource.data.role))
-                    );
-      allow delete: if isAdmin();
+      allow read: if (isAuthenticated() && request.auth.uid == userId) || isStaffRole(role());
+      allow create: if canCreateUser(role(), userId);
+      allow update: if canUpdateUser(role(), userId);
+      allow delete: if role() == 'admin';
+    }
+
+    // ===============================================================
+    // Restaurant profile & menu (public)
+    // ===============================================================
+
+    function canUpdateProfile(r) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return
+        // Ratings are aggregated by the server from real customer reviews.
+        (isManagerRole(r) && isValidRestaurantProfile(request.resource.data) &&
+          !changed.hasAny(['averageRating', 'totalRatings'])) ||
+        // Kitchen staff can pause / resume ordering and adjust the wait time.
+        (isStaffRole(r) && changed.hasOnly(['isAcceptingOrders', 'pausedUntil', 'estimatedPrepMinutes']) &&
+          isValidOperations(request.resource.data));
     }
 
     match /restaurant/profile {
       allow read: if true; // Publicly readable for storefront
-      allow create, update: if isAtLeastManager() && isValidRestaurantProfile(request.resource.data);
+      allow create: if isManagerRole(role()) && isValidRestaurantProfile(request.resource.data) &&
+                    !('averageRating' in request.resource.data) && !('totalRatings' in request.resource.data);
+      allow update: if canUpdateProfile(role());
       allow delete: if false; // Never delete the profile
     }
 
     match /categories/{categoryId} {
       allow read: if true; // Publicly readable for storefront
-      allow create, update: if isAtLeastManager() && isValidCategory(request.resource.data);
-      allow delete: if isAtLeastManager();
+      allow create, update: if isManagerRole(role()) && isValidCategory(request.resource.data);
+      allow delete: if isManagerRole(role());
+    }
+
+    function canUpdateItem(r) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return (isManagerRole(r) && isValidMenuItem(request.resource.data) &&
+               !changed.hasAny(['rating', 'ratingCount', 'soldCount'])) ||
+             // Kitchen staff can mark items as sold out / back in stock.
+             (isStaffRole(r) && changed.hasOnly(['isSoldOut']) && request.resource.data.isSoldOut is bool);
     }
 
     match /items/{itemId} {
       allow read: if true; // Publicly readable for storefront
-      allow create, update: if isAtLeastManager() && isValidMenuItem(request.resource.data);
-      allow delete: if isAtLeastManager();
+      allow create: if isManagerRole(role()) && isValidMenuItem(request.resource.data) &&
+                    !('rating' in request.resource.data) &&
+                    request.resource.data.get('ratingCount', 0) == 0 && request.resource.data.get('soldCount', 0) == 0;
+      allow update: if canUpdateItem(role());
+      allow delete: if isManagerRole(role());
+    }
+
+    // ===============================================================
+    // Orders
+    //
+    // Orders (and therefore prices) are only created by the server (/api/checkout).
+    // Customers can read their own orders; cancelling, paying and rating go through the
+    // server so refunds and statistics stay consistent.
+    // ===============================================================
+
+    // Staff and drivers may record cash payments (and undo a mistaken tap). Card payment
+    // status is only ever changed by the server after Stripe confirms it.
+    function validPaymentChange(changed) {
+      return !changed.hasAny(['paymentStatus', 'paidAt', 'paymentCollectedBy']) ||
+             (resource.data.get('paymentMethod', 'card') == 'cash' &&
+              resource.data.get('paymentStatus', 'pending') in ['pending', 'paid'] &&
+              request.resource.data.get('paymentStatus', 'pending') in ['pending', 'paid']);
+    }
+
+    // Paid card orders must be cancelled through the server so the customer is refunded.
+    // Unpaid checkouts can only be cancelled, never pushed to the kitchen.
+    function validStatusChange() {
+      let from = resource.data.status;
+      let to = request.resource.data.status;
+      return to != 'payment_pending' &&
+             (from != 'payment_pending' || to == 'cancelled') &&
+             (from != 'cancelled' || to == 'cancelled') &&
+             (to != 'cancelled' || from == 'cancelled' ||
+               !(resource.data.get('paymentMethod', 'card') == 'card' &&
+                 resource.data.get('paymentStatus', 'pending') in ['paid', 'partially_refunded']));
+    }
+
+    function canUpdateOrder(r) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return isValidOrderPatch(request.resource.data) && validPaymentChange(changed) &&
+             (
+               (isStaffRole(r) &&
+                 changed.hasOnly(['status', 'updatedAt', 'paymentStatus', 'paidAt', 'paymentCollectedBy', 'driverId',
+                                  'driverName', 'deliveryStatus', 'proofOfDeliveryImage', 'cancelReason', 'cancelledBy']) &&
+                 validStatusChange()) ||
+               (r == 'driver' &&
+                 resource.data.type == 'delivery' &&
+                 changed.hasOnly(['status', 'deliveryStatus', 'driverId', 'driverName', 'updatedAt',
+                                  'proofOfDeliveryImage', 'paymentStatus', 'paidAt', 'paymentCollectedBy']) &&
+                 (!('driverId' in resource.data) || resource.data.driverId == request.auth.uid) &&
+                 request.resource.data.driverId == request.auth.uid &&
+                 request.resource.data.status in ['preparing', 'ready', 'out_for_delivery', 'completed'])
+             );
+    }
+
+    function canReadOrder(r) {
+      return isStaffRole(r) ||
+             (r == 'driver' && resource.data.type == 'delivery') ||
+             (isAuthenticated() && resource.data.customerId == request.auth.uid);
     }
 
     match /orders/{orderId} {
-      allow read: if isAtLeastStaff() || isDriver() || (isAuthenticated() && resource.data.customerId == request.auth.uid);
-      allow create: if isAuthenticated() && isValidOrder(request.resource.data) &&
-                    request.resource.data.customerId == request.auth.uid &&
-                    request.resource.data.status in ['new', 'payment_pending'];
-      allow update: if (isAtLeastStaff() && isValidOrder(request.resource.data) && 
-                        request.resource.data.customerId == resource.data.customerId &&
-                        request.resource.data.createdAt == resource.data.createdAt) ||
-                        (isDriver() && isValidOrder(request.resource.data) &&
-                        resource.data.type == 'delivery' &&
-                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'deliveryStatus', 'driverId', 'driverName', 'updatedAt', 'proofOfDeliveryImage']) &&
-                        (!('driverId' in resource.data) || resource.data.driverId == request.auth.uid) &&
-                        request.resource.data.driverId == request.auth.uid) ||
-                       (isAuthenticated() && resource.data.customerId == request.auth.uid &&
-                        isValidOrder(request.resource.data) &&
-                        resource.data.status == 'payment_pending' &&
-                        request.resource.data.status == 'new' &&
-                        request.resource.data.paymentStatus == 'paid' &&
-                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'paymentStatus', 'paymentIntentId', 'updatedAt'])) ||
-                       (isAuthenticated() && resource.data.customerId == request.auth.uid &&
-                        isValidOrder(request.resource.data) &&
-                        resource.data.status in ['new', 'confirmed'] &&
-                        request.resource.data.status == 'cancelled' &&
-                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])) ||
-                       (isAuthenticated() && resource.data.customerId == request.auth.uid &&
-                        isValidOrder(request.resource.data) &&
-                        resource.data.status == 'completed' &&
-                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating', 'ratingComment']));
+      allow read: if canReadOrder(role());
+      allow create: if false; // Orders are created by the server at checkout.
+      allow update: if canUpdateOrder(role());
       allow delete: if false; // Orders should not be deleted, only cancelled
     }
 
+    // ===============================================================
+    // Promotions
+    // ===============================================================
+
     match /promos/{promoId} {
-      allow read: if isAuthenticated(); // Customers need to read promos to apply them
-      allow create: if isAtLeastManager() && isValidPromoCode(request.resource.data);
-      allow update: if isAtLeastManager() && isValidPromoCode(request.resource.data) || 
-                    (isAuthenticated() && isValidPromoCode(request.resource.data) && 
-                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usedCount', 'usedBy']) &&
-                     request.resource.data.usedCount == resource.data.usedCount + 1 &&
-                     request.resource.data.usedBy.hasAll(resource.data.usedBy) &&
-                     request.resource.data.usedBy.size() == resource.data.usedBy.size() + 1 &&
-                     request.auth.uid in request.resource.data.usedBy); // Allow customers to increment usedCount and add themselves to usedBy
-      allow delete: if isAtLeastManager();
+      allow read: if isAuthenticated(); // Customers see their promo inbox
+      allow create: if isManagerRole(role()) && isValidPromoCode(request.resource.data) &&
+                    request.resource.data.id == promoId &&
+                    request.resource.data.usedCount == 0 && request.resource.data.usedBy.size() == 0;
+      // Usage counters are maintained by the server when orders are placed.
+      allow update: if isManagerRole(role()) && isValidPromoCode(request.resource.data) &&
+                    request.resource.data.id == resource.data.id;
+      allow delete: if isManagerRole(role());
     }
 
     match /test/connection {
