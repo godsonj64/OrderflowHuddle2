@@ -1,0 +1,227 @@
+{
+  "entities": {
+    "RestaurantProfile": {
+      "title": "RestaurantProfile",
+      "description": "Singleton document for restaurant settings and profile.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "address": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "deliveryFee": { "type": "number" },
+        "minimumOrder": { "type": "number" },
+        "isAcceptingOrders": { "type": "boolean" },
+        "isDeliveryEnabled": { "type": "boolean" },
+        "isPickupEnabled": { "type": "boolean" },
+        "isSchedulePickupEnabled": { "type": "boolean" },
+        "promotionalZeroFee": { "type": "boolean" },
+        "logoUrl": { "type": "string" },
+        "bannerUrl": { "type": "string" },
+        "taxRate": { "type": "number" },
+        "businessHours": { "type": "object" },
+        "isMarqueeEnabled": { "type": "boolean" },
+        "marqueeText": { "type": "string" },
+        "marqueeImageUrl": { "type": "string" }
+      },
+      "required": ["name", "isAcceptingOrders"]
+    },
+    "MenuCategory": {
+      "title": "MenuCategory",
+      "description": "Categories for the menu (e.g., Starters, Mains).",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "displayOrder": { "type": "number" },
+        "active": { "type": "boolean" },
+        "imageUrl": { "type": "string" }
+      },
+      "required": ["name", "displayOrder", "active"]
+    },
+    "MenuItem": {
+      "title": "MenuItem",
+      "description": "Individual food items on the menu.",
+      "type": "object",
+      "properties": {
+        "categoryId": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "basePrice": { "type": "number" },
+        "imageUrl": { "type": "string" },
+        "active": { "type": "boolean" },
+        "dietaryTags": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "preparationTime": { "type": "number" },
+        "modifierGroups": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "minSelection": { "type": "number" },
+              "maxSelection": { "type": "number" },
+              "required": { "type": "boolean" },
+              "modifiers": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string" },
+                    "name": { "type": "string" },
+                    "price": { "type": "number" }
+                  },
+                  "required": ["name", "price"]
+                }
+              }
+            },
+            "required": ["name", "minSelection", "maxSelection", "modifiers", "required"]
+          }
+        },
+        "sizeVariants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "priceAdjustment": { "type": "number" }
+            },
+            "required": ["name", "priceAdjustment"]
+          }
+        }
+      },
+      "required": ["categoryId", "name", "basePrice", "active"]
+    },
+    "PromoCode": {
+      "title": "PromoCode",
+      "description": "Promotional codes for discounts.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "discountType": { "type": "string", "enum": ["percentage", "fixed"] },
+        "discountValue": { "type": "number" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "active": { "type": "boolean" },
+        "usageLimit": { "type": "number" },
+        "usedCount": { "type": "number" },
+        "usedBy": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "assignedTo": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "discountType", "discountValue", "active", "usedCount", "usedBy", "createdAt"]
+    },
+    "CustomerProfile": {
+      "title": "CustomerProfile",
+      "description": "User profile for customers and staff.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "restaurant_owner", "manager", "staff", "driver", "customer"] },
+        "phone": { "type": "string" },
+        "savedAddresses": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "totalOrders": { "type": "number" },
+        "totalSpent": { "type": "number" },
+        "lastOrderDate": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Customer order.",
+      "type": "object",
+      "properties": {
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerEmail": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "cartItemId": { "type": "string" },
+              "itemId": { "type": "string" },
+              "name": { "type": "string" },
+              "price": { "type": "number" },
+              "quantity": { "type": "number" },
+              "selectedAddons": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string" },
+                    "name": { "type": "string" },
+                    "price": { "type": "number" }
+                  },
+                  "required": ["name", "price"]
+                }
+              }
+            },
+            "required": ["itemId", "name", "price", "quantity"]
+          }
+        },
+        "status": { "type": "string", "enum": ["new", "confirmed", "preparing", "ready", "out_for_delivery", "completed", "cancelled"] },
+        "total": { "type": "number" },
+        "subtotal": { "type": "number" },
+        "deliveryFee": { "type": "number" },
+        "serviceFee": { "type": "number" },
+        "type": { "type": "string", "enum": ["pickup", "delivery"] },
+        "promoCode": { "type": "string" },
+        "discountAmount": { "type": "number" },
+        "deliveryAddress": { "type": "string" },
+        "scheduledTime": { "type": "string" },
+        "notes": { "type": "string" },
+        "paymentStatus": { "type": "string", "enum": ["pending", "paid", "failed", "refunded", "partially_refunded"] },
+        "paymentIntentId": { "type": "string" },
+        "refundAmount": { "type": "number" },
+        "driverId": { "type": "string" },
+        "driverName": { "type": "string" },
+        "deliveryStatus": { "type": "string", "enum": ["pending", "assigned", "picked_up", "delivered"] },
+        "proofOfDeliveryImage": { "type": "string", "description": "Base64 string or URL of the proof image" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["customerId", "items", "status", "total", "type", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/restaurant/profile": {
+      "schema": { "$ref": "#/entities/RestaurantProfile" },
+      "description": "Singleton document for restaurant settings."
+    },
+    "/categories/{categoryId}": {
+      "schema": { "$ref": "#/entities/MenuCategory" },
+      "description": "Menu categories."
+    },
+    "/items/{itemId}": {
+      "schema": { "$ref": "#/entities/MenuItem" },
+      "description": "Menu items."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/CustomerProfile" },
+      "description": "User profiles."
+    },
+    "/promos/{promoId}": {
+      "schema": { "$ref": "#/entities/PromoCode" },
+      "description": "Promotional codes."
+    },
+    "/orders/{orderId}": {
+      "schema": { "$ref": "#/entities/Order" },
+      "description": "Customer orders."
+    }
+  }
+}

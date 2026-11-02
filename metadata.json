@@ -1,0 +1,6 @@
+{
+  "name": "Remix:  OrderFlow for Huddle Snack Stop",
+  "description": "A custom direct ordering system for Huddle Food Trailer, allowing customers to order directly and the restaurant to manage menus and orders.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
