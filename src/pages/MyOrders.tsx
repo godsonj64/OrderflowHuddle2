@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import toast from 'react-hot-toast';
-import { ChevronRight, Receipt, RotateCcw } from 'lucide-react';
+import { ChevronRight, RotateCcw, ShoppingBag } from 'lucide-react';
 import { db } from '../firebase';
 import type { Order } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -73,7 +73,7 @@ export const MyOrders: React.FC = () => {
   if (!userProfile) {
     return (
       <div className="text-center py-20 max-w-sm mx-auto">
-        <Receipt className="mx-auto text-muted mb-4" size={40} />
+        <ShoppingBag className="mx-auto text-muted mb-4" size={40} />
         <h1 className="text-2xl font-extrabold mb-2">Your orders</h1>
         <p className="text-muted mb-6">Sign in to see your order history and track deliveries.</p>
         <button onClick={openAuth} className="bg-brand text-on-brand px-6 py-3 rounded-btn font-semibold">
@@ -120,7 +120,7 @@ export const MyOrders: React.FC = () => {
 
       {visible.length === 0 ? (
         <div className="bg-card rounded-card border border-line p-10 text-center">
-          <Receipt className="mx-auto text-muted mb-3" size={36} />
+          <ShoppingBag className="mx-auto text-muted mb-3" size={36} />
           <h2 className="font-bold mb-1">No orders yet</h2>
           <p className="text-sm text-muted mb-6">When you place an order it will show up here.</p>
           <Link to="/" className="inline-block bg-brand text-on-brand px-6 py-3 rounded-btn font-semibold">

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
-import { Facebook, Globe, Home as HomeIcon, Instagram, LayoutDashboard, Music2, Receipt, ShoppingBag, Truck, User } from 'lucide-react';
+import { Facebook, Globe, Home as HomeIcon, Instagram, LayoutDashboard, Music2, ShoppingBag, ShoppingCart, Truck, User } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { useStore } from '../context/StoreContext';
@@ -116,7 +116,7 @@ function Header() {
             </Link>
           )}
           <Link to="/cart" className="hidden md:flex relative min-h-[40px] min-w-[40px] items-center justify-center rounded-full text-ink hover:bg-soft transition" aria-label={`Cart, ${itemCount} items`}>
-            <ShoppingBag size={20} />
+            <ShoppingCart size={20} />
             {itemCount > 0 && (
               <span className="absolute -top-0.5 -right-0.5 min-w-5 h-5 px-1 rounded-full bg-brand text-on-brand text-[10px] font-bold font-mono tabular-nums flex items-center justify-center">
                 {itemCount}
@@ -291,7 +291,7 @@ function BottomNav() {
           {({ isActive }) => (
             <>
               {isActive && <span className="absolute top-0 w-8 h-0.5 rounded-full bg-brand" />}
-              <Receipt size={21} strokeWidth={isActive ? 2.4 : 1.9} />
+              <ShoppingBag size={21} strokeWidth={isActive ? 2.4 : 1.9} />
               <span>Orders</span>
             </>
           )}
@@ -301,7 +301,7 @@ function BottomNav() {
             <>
               {isActive && <span className="absolute top-0 w-8 h-0.5 rounded-full bg-brand" />}
               <span className="relative">
-                <ShoppingBag size={21} strokeWidth={isActive ? 2.4 : 1.9} />
+                <ShoppingCart size={21} strokeWidth={isActive ? 2.4 : 1.9} />
                 {itemCount > 0 && (
                   <span className="absolute -top-1.5 -right-2.5 min-w-4 h-4 px-1 rounded-full bg-brand text-on-brand text-[9px] font-bold font-mono tabular-nums flex items-center justify-center">
                     {itemCount}

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { Award, Gift, LayoutDashboard, LogOut, Receipt, ShoppingBag, Truck } from 'lucide-react';
+import { Award, Gift, LayoutDashboard, LogOut, ShoppingBag, Truck } from 'lucide-react';
 import { db } from '../firebase';
 import type { PromoCode, UserProfile } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -184,7 +184,7 @@ export const UserProfileDrawer: React.FC<UserProfileDrawerProps> = ({ isOpen, on
 
         <div className="space-y-2 pt-2 border-t border-line">
           <Link to="/my-orders" onClick={onClose} className="flex items-center gap-3 px-4 py-3 rounded-btn bg-soft font-semibold">
-            <Receipt size={18} /> Order history
+            <ShoppingBag size={18} /> Order history
           </Link>
           {isStaff && (
             <Link to="/admin" onClick={onClose} className="flex items-center gap-3 px-4 py-3 rounded-btn bg-brand text-on-brand font-semibold">

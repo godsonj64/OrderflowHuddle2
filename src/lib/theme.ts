@@ -19,7 +19,7 @@ export interface ThemePreset {
 }
 
 export const THEME_PRESETS: ThemePreset[] = [
-  { id: 'classic', name: 'Classic', description: 'Warm neutrals with deep forest green', brandColor: '#1A211A', accentColor: '#EADDC5', mode: 'warm', font: 'inter', corners: 'rounded' },
+  { id: 'classic', name: 'Classic', description: 'Warm neutrals with deep forest green', brandColor: '#1A211A', accentColor: '#EADDC5', mode: 'warm', font: 'geist', corners: 'rounded' },
   { id: 'fresh', name: 'Fresh', description: 'Bright, clean and healthy', brandColor: '#15803D', accentColor: '#FDE68A', mode: 'light', font: 'poppins', corners: 'pill' },
   { id: 'street', name: 'Street Food', description: 'Bold red, loud headlines', brandColor: '#DC2626', accentColor: '#FACC15', mode: 'light', font: 'oswald', corners: 'rounded' },
   { id: 'midnight', name: 'Midnight', description: 'Dark mode with amber glow', brandColor: '#F59E0B', accentColor: '#FDE68A', mode: 'dark', font: 'grotesk', corners: 'rounded' },
@@ -41,6 +41,7 @@ const SANS_FALLBACK = 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFo
 const SERIF_FALLBACK = 'ui-serif, Georgia, Cambria, "Times New Roman", serif';
 
 export const FONT_PAIRINGS: FontPairing[] = [
+  { id: 'geist', name: 'Minimalist (Geist)', display: `"Geist", ${SANS_FALLBACK}`, body: `"Geist", ${SANS_FALLBACK}`, google: ['Geist:wght@300;400;500;600;700;800'] },
   { id: 'inter', name: 'Modern (Inter)', display: `"Inter", ${SANS_FALLBACK}`, body: `"Inter", ${SANS_FALLBACK}`, google: [] },
   { id: 'poppins', name: 'Friendly (Poppins)', display: `"Poppins", ${SANS_FALLBACK}`, body: `"Poppins", ${SANS_FALLBACK}`, google: ['Poppins:wght@400;500;600;700;800'] },
   { id: 'dm', name: 'Refined (DM Serif + DM Sans)', display: `"DM Serif Display", ${SERIF_FALLBACK}`, body: `"DM Sans", ${SANS_FALLBACK}`, google: ['DM+Serif+Display', 'DM+Sans:wght@400;500;600;700'] },

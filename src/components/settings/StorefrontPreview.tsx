@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo } from 'react';
-import { ShoppingBag, Star } from 'lucide-react';
+import { ShoppingCart, Star } from 'lucide-react';
 import type { MenuItem, RestaurantProfile } from '../../types';
 import { ANNOUNCEMENT_STYLES, ensureFontLoaded, resolveTheme, themeStyle } from '../../lib/theme';
 import { MenuItemCard } from '../MenuItemCard';
@@ -88,7 +88,7 @@ export function StorefrontPreview({ profile, items }: { profile: RestaurantProfi
 
           <div className="sticky bottom-2 bg-brand text-on-brand rounded-btn px-3 py-2.5 font-semibold text-[12px] flex items-center justify-between shadow-ios-lg">
             <span className="flex items-center gap-1.5">
-              <ShoppingBag size={14} /> View cart · 2 items
+              <ShoppingCart size={14} /> View cart · 2 items
             </span>
             <span>$19.50</span>
           </div>

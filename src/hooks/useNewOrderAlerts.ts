@@ -88,7 +88,7 @@ export function useNewOrderAlerts(enabled: boolean) {
         navigator.vibrate?.([200, 100, 200]);
         for (const o of fresh) {
           const pay = o.paymentMethod === 'cash' ? ' · cash' : '';
-          toast(`New ${o.type} order #${orderCode(o)} · ${formatMoney(o.total)}${pay}`, { icon: '🔔', duration: 8000, id: `new-${o.id}` });
+          toast(`New ${o.type} order #${orderCode(o)} · ${formatMoney(o.total)}${pay}`, { duration: 8000, id: `new-${o.id}` });
         }
       },
       (err) => reportError(err, 'order-alerts', { toast: false }),

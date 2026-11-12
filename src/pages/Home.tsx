@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
 import toast from 'react-hot-toast';
-import { CalendarClock, Search, ShoppingBag, X } from 'lucide-react';
+import { CalendarClock, Search, ShoppingCart, X } from 'lucide-react';
 import type { MenuItem, RestaurantProfile } from '../types';
 import { useStore } from '../context/StoreContext';
 import { useCart } from '../context/CartContext';
@@ -365,7 +365,7 @@ export const Home: React.FC = () => {
             className="pointer-events-auto flex items-center justify-between gap-3 bg-brand text-on-brand rounded-btn px-4 py-3.5 shadow-ios-lg font-semibold"
           >
             <span className="flex items-center gap-2">
-              <ShoppingBag size={18} />
+              <ShoppingCart size={18} />
               View cart · {itemCount} item{itemCount === 1 ? '' : 's'}
             </span>
             <span>{pricing.ready ? formatMoney(fromCents(pricing.subtotalCents)) : ''}</span>

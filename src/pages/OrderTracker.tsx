@@ -61,7 +61,7 @@ export const OrderTracker: React.FC = () => {
         }
         const next = { id: snap.id, ...snap.data() } as Order;
         if (prevStatus.current && prevStatus.current !== next.status && STATUS_TOASTS[next.status]) {
-          toast(STATUS_TOASTS[next.status], { icon: next.status === 'cancelled' ? '❌' : '✅', duration: 6000 });
+          toast(STATUS_TOASTS[next.status], { duration: 6000 });
           navigator.vibrate?.(150);
         }
         prevStatus.current = next.status;

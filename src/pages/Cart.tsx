@@ -2,7 +2,7 @@ import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'rea
 import { Link, useNavigate } from 'react-router-dom';
 import { arrayUnion, doc, getDoc, increment, serverTimestamp, setDoc, Timestamp, updateDoc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
-import { AlertCircle, Banknote, Bike, CalendarClock, CreditCard, Minus, Plus, ShoppingBag, Store, Tag, Trash2, X, Zap } from 'lucide-react';
+import { AlertCircle, Banknote, Bike, CalendarClock, CreditCard, Minus, Plus, ShoppingCart, Store, Tag, Trash2, X, Zap } from 'lucide-react';
 import { db } from '../firebase';
 import type { Order, OrderType, PaymentMethod, PromoCode } from '../types';
 import { useCart } from '../context/CartContext';
@@ -292,7 +292,7 @@ export const Cart: React.FC = () => {
   const finishOrder = (orderId: string) => {
     writePending(null);
     clearCart();
-    toast.success('Order placed! 🎉');
+    toast.success('Order placed!');
     navigate(`/order/${orderId}`, { replace: true, state: { placed: true } });
   };
 
@@ -486,7 +486,7 @@ export const Cart: React.FC = () => {
     return (
       <div className="text-center py-16 sm:py-24 max-w-md mx-auto">
         <div className="w-20 h-20 rounded-full bg-soft flex items-center justify-center mx-auto mb-6">
-          <ShoppingBag className="text-muted" size={32} />
+          <ShoppingCart className="text-muted" size={32} />
         </div>
         <h1 className="font-display text-2xl sm:text-3xl font-extrabold mb-2">Your cart is empty</h1>
         <p className="text-muted mb-8">Add something delicious from the menu.</p>
