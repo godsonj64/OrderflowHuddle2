@@ -1,28 +1,56 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { collection, doc, onSnapshot, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import toast from 'react-hot-toast';
-import { Camera, CheckCircle2, MapPin, Navigation, Package, Phone } from 'lucide-react';
+import { Camera, CheckCircle2, LocateFixed, MapPin, Navigation, Package, Phone, Radio } from 'lucide-react';
 import { db } from '../firebase';
-import type { Order } from '../types';
+import type { GeoPoint, Order } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { useStore } from '../context/StoreContext';
+import { api } from '../lib/api';
 import { orderCode } from '../lib/ids';
 import { formatMoney } from '../lib/money';
 import { timeAgo, toMillis } from '../lib/dates';
 import { isCashDue } from '../lib/orderStatus';
+import { geocodeAddressNominatim, isValidGeoPoint, sanitizeGeoPoint, shouldPublishGpsUpdate } from '../lib/geo';
 import { resizeWithPreset } from '../utils/imageUpload';
 import { friendlyError, reportError } from '../utils/errorHandling';
 import { Sheet, Spinner } from '../components/ui';
 
-const mapsUrl = (address = '') => `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`;
+const OrderTrackingMap = lazy(() =>
+  import('../components/OrderTrackingMap').then((m) => ({ default: m.OrderTrackingMap })),
+);
+
+const osmDirectionsUrl = (from?: GeoPoint | null, to?: GeoPoint | null, fallbackAddress = '') => {
+  if (isValidGeoPoint(from) && isValidGeoPoint(to)) {
+    return `https://www.openstreetmap.org/directions?engine=fossgis_osrm_car&route=${from.lat}%2C${from.lng}%3B${to.lat}%2C${to.lng}`;
+  }
+  if (isValidGeoPoint(to)) {
+    return `https://www.openstreetmap.org/?mlat=${to.lat}&mlon=${to.lng}#map=17/${to.lat}/${to.lng}`;
+  }
+  return `https://www.openstreetmap.org/search?query=${encodeURIComponent(fallbackAddress)}`;
+};
 
 export const DriverDashboard: React.FC = () => {
   const { userProfile } = useAuth();
+  const { profile } = useStore();
   const [available, setAvailable] = useState<Order[]>([]);
   const [mine, setMine] = useState<Order[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [completing, setCompleting] = useState<Order | null>(null);
   const [cashConfirmed, setCashConfirmed] = useState(false);
   const [photo, setPhoto] = useState<string | null>(null);
+
+  // Live GPS broadcasting state
+  const [sharingGps, setSharingGps] = useState(false);
+  const [driverPos, setDriverPos] = useState<GeoPoint | null>(null);
+  const [gpsError, setGpsError] = useState<string | null>(null);
+  const [geocodedTargets, setGeocodedTargets] = useState<Record<string, GeoPoint>>({});
+  const [geocodedStore, setGeocodedStore] = useState<GeoPoint | null>(null);
+
+  const watchIdRef = useRef<number | null>(null);
+  const lastPublishedRef = useRef<GeoPoint | null>(null);
+  const mineRef = useRef<Order[]>(mine);
+  mineRef.current = mine;
 
   const driverName = (userProfile?.name || userProfile?.email || 'Driver').slice(0, 100);
 
@@ -53,6 +81,127 @@ export const DriverDashboard: React.FC = () => {
     };
   }, [userProfile?.uid]);
 
+  // Geocode store address if profile.location is not set
+  useEffect(() => {
+    if (isValidGeoPoint(profile?.location)) {
+      setGeocodedStore(profile!.location);
+      return;
+    }
+    if (!profile?.address) return;
+    const ctrl = new AbortController();
+    geocodeAddressNominatim(profile.address, ctrl.signal).then((pt) => {
+      if (!ctrl.signal.aborted && pt) setGeocodedStore(pt);
+    });
+    return () => ctrl.abort();
+  }, [profile?.location, profile?.address]);
+
+  // Geocode delivery addresses for active deliveries when deliveryLocation is not set
+  useEffect(() => {
+    let cancelled = false;
+    mine.forEach((order) => {
+      if (isValidGeoPoint(order.deliveryLocation) || geocodedTargets[order.id] || !order.deliveryAddress) return;
+      geocodeAddressNominatim(order.deliveryAddress).then((pt) => {
+        if (!cancelled && pt) {
+          setGeocodedTargets((prev) => ({ ...prev, [order.id]: pt }));
+        }
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mine, geocodedTargets]);
+
+  const broadcastGpsToActiveOrders = useCallback(async (point: GeoPoint, force = false) => {
+    const clean = sanitizeGeoPoint(point);
+    if (!clean) return;
+    setDriverPos(clean);
+    if (!force && !shouldPublishGpsUpdate(lastPublishedRef.current, clean)) return;
+    lastPublishedRef.current = clean;
+
+    const activeOrders = mineRef.current;
+    if (activeOrders.length === 0) return;
+
+    await Promise.allSettled(
+      activeOrders.flatMap((o) => [
+        api.updateOrderLocation(o.id, { driverLocation: clean }),
+        updateDoc(doc(db, 'orders', o.id), { driverLocation: clean, updatedAt: serverTimestamp() }),
+      ]),
+    );
+  }, []);
+
+  const stopGpsSharing = useCallback(() => {
+    if (watchIdRef.current !== null && 'geolocation' in navigator) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+    setSharingGps(false);
+  }, []);
+
+  const startGpsSharing = useCallback(() => {
+    if (!('geolocation' in navigator)) {
+      setGpsError('GPS is not supported by this browser.');
+      toast.error('GPS is not supported by this browser.');
+      return;
+    }
+    if (watchIdRef.current !== null) return;
+    setGpsError(null);
+    setSharingGps(true);
+
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        const pt: GeoPoint = {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: pos.coords.accuracy,
+          heading: pos.coords.heading,
+          speed: pos.coords.speed,
+          updatedAt: Date.now(),
+        };
+        broadcastGpsToActiveOrders(pt, false);
+      },
+      (err) => {
+        const msg =
+          err.code === err.PERMISSION_DENIED
+            ? 'Location permission denied. Enable GPS access in browser settings.'
+            : 'Waiting for GPS signal…';
+        setGpsError(msg);
+      },
+      { enableHighAccuracy: true, maximumAge: 4000, timeout: 15000 },
+    );
+  }, [broadcastGpsToActiveOrders]);
+
+  const pingGpsNow = useCallback(() => {
+    if (!('geolocation' in navigator)) {
+      toast.error('GPS is not supported on this device.');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const pt: GeoPoint = {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: pos.coords.accuracy,
+          heading: pos.coords.heading,
+          speed: pos.coords.speed,
+          updatedAt: Date.now(),
+        };
+        await broadcastGpsToActiveOrders(pt, true);
+        toast.success('Live GPS location updated');
+      },
+      () => toast.error('Could not read GPS location.'),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 2000 },
+    );
+  }, [broadcastGpsToActiveOrders]);
+
+  // Stop watching when no active deliveries remain, and cleanup on unmount
+  useEffect(() => {
+    if (mine.length === 0 && sharingGps) {
+      stopGpsSharing();
+    }
+  }, [mine.length, sharingGps, stopGpsSharing]);
+
+  useEffect(() => () => stopGpsSharing(), [stopGpsSharing]);
+
   const run = async (order: Order, patch: Record<string, unknown>, success: string) => {
     setBusyId(order.id);
     try {
@@ -68,10 +217,15 @@ export const DriverDashboard: React.FC = () => {
     }
   };
 
-  const accept = (order: Order) =>
-    run(order, { driverId: userProfile!.uid, driverName, deliveryStatus: 'assigned' }, 'Delivery accepted. Head to the kitchen when it is ready.');
+  const accept = async (order: Order) => {
+    const ok = await run(order, { driverId: userProfile!.uid, driverName, deliveryStatus: 'assigned' }, 'Delivery accepted. Head to the kitchen when it is ready.');
+    if (ok && !sharingGps) startGpsSharing();
+  };
 
-  const pickedUp = (order: Order) => run(order, { status: 'out_for_delivery', deliveryStatus: 'picked_up' }, 'Picked up. Drive safe!');
+  const pickedUp = async (order: Order) => {
+    const ok = await run(order, { status: 'out_for_delivery', deliveryStatus: 'picked_up' }, 'Picked up. Live GPS tracking active!');
+    if (ok && !sharingGps) startGpsSharing();
+  };
 
   const openComplete = (order: Order) => {
     setCashConfirmed(false);
@@ -110,13 +264,14 @@ export const DriverDashboard: React.FC = () => {
   };
 
   const cashToCollect = useMemo(() => mine.filter(isCashDue).reduce((sum, o) => sum + o.total, 0), [mine]);
+  const storePoint = isValidGeoPoint(profile?.location) ? profile!.location : geocodedStore;
 
   return (
     <div className="max-w-3xl mx-auto space-y-5">
       <div className="flex items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">Deliveries</h1>
-          <p className="text-xs sm:text-sm text-gray-500 mt-0.5">Accept a delivery, pick it up, then confirm drop-off.</p>
+          <p className="text-xs sm:text-sm text-gray-500 mt-0.5">Accept a delivery, share live GPS, and confirm drop-off.</p>
         </div>
         {cashToCollect > 0 && (
           <div className="text-right rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 shrink-0">
@@ -126,6 +281,58 @@ export const DriverDashboard: React.FC = () => {
         )}
       </div>
 
+      {/* Live GPS broadcaster strip whenever the driver has active deliveries */}
+      {mine.length > 0 && (
+        <div
+          className={`rounded-2xl border p-3.5 sm:p-4 flex flex-wrap items-center justify-between gap-3 transition ${
+            sharingGps ? 'bg-emerald-950 text-white border-emerald-800' : 'bg-white text-gray-900 border-gray-200/80'
+          }`}
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <span
+              className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                sharingGps ? 'bg-emerald-500/20 text-emerald-400' : 'bg-gray-100 text-gray-600'
+              }`}
+            >
+              <Radio size={18} className={sharingGps ? 'animate-pulse' : ''} />
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-bold flex items-center gap-2">
+                {sharingGps ? 'Live GPS sharing is ON' : 'Share your live GPS with customers'}
+              </p>
+              <p className={`text-xs truncate ${sharingGps ? 'text-emerald-200/80' : 'text-gray-500'}`}>
+                {gpsError
+                  ? gpsError
+                  : driverPos
+                    ? `Coordinates ${driverPos.lat.toFixed(4)}, ${driverPos.lng.toFixed(4)}${driverPos.accuracy ? ` · ±${Math.round(driverPos.accuracy)}m` : ''}`
+                    : 'Broadcasts your position onto the customer’s live OpenStreetMap tracker.'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={pingGpsNow}
+              className={`min-h-[38px] px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition ${
+                sharingGps ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-800'
+              }`}
+            >
+              <LocateFixed size={14} /> Ping now
+            </button>
+            <button
+              type="button"
+              onClick={sharingGps ? stopGpsSharing : startGpsSharing}
+              className={`min-h-[38px] px-3.5 py-1.5 rounded-xl text-xs font-bold transition ${
+                sharingGps ? 'bg-red-500/90 hover:bg-red-500 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+              }`}
+            >
+              {sharingGps ? 'Pause GPS' : 'Start live GPS'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {mine.length > 0 && (
         <section className="space-y-3">
           <h2 className="font-bold text-sm uppercase tracking-wider text-gray-500">
@@ -134,6 +341,9 @@ export const DriverDashboard: React.FC = () => {
           {mine.map((order) => {
             const cashDue = isCashDue(order);
             const pickedUp_ = order.deliveryStatus === 'picked_up' || order.status === 'out_for_delivery';
+            const destPoint = isValidGeoPoint(order.deliveryLocation) ? order.deliveryLocation : geocodedTargets[order.id] || null;
+            const currentDriverPoint = driverPos || (isValidGeoPoint(order.driverLocation) ? order.driverLocation : null);
+
             return (
               <article key={order.id} className="bg-gray-900 text-white rounded-2xl p-4 sm:p-5 space-y-4">
                 <header className="flex items-start justify-between gap-3">
@@ -157,14 +367,36 @@ export const DriverDashboard: React.FC = () => {
                   {order.notes && <p className="text-xs text-amber-200 font-medium">Note: {order.notes}</p>}
                   <p className="text-xs text-gray-300">{order.items.map((i) => `${i.quantity}× ${i.name}`).join(' · ')}</p>
                 </div>
+
+                {/* Live OpenStreetMap route view for the driver */}
+                {(destPoint || storePoint || currentDriverPoint) && (
+                  <Suspense
+                    fallback={
+                      <div className="h-52 rounded-2xl bg-white/5 flex items-center justify-center text-gray-400">
+                        <Spinner size={18} />
+                      </div>
+                    }
+                  >
+                    <OrderTrackingMap
+                      storePoint={storePoint}
+                      storeLabel={profile?.name || 'Kitchen'}
+                      destinationPoint={destPoint}
+                      destinationLabel={`${order.customerName || 'Customer'} · ${order.deliveryAddress || ''}`}
+                      driverPoint={currentDriverPoint}
+                      driverLabel="You (Driver GPS)"
+                      heightClassName="h-52 sm:h-60"
+                    />
+                  </Suspense>
+                )}
+
                 <div className="grid grid-cols-3 gap-2">
                   <a
-                    href={mapsUrl(order.deliveryAddress)}
+                    href={osmDirectionsUrl(currentDriverPoint || storePoint, destPoint, order.deliveryAddress)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="min-h-[48px] flex flex-col items-center justify-center gap-1 rounded-xl bg-white/10 hover:bg-white/15 py-2.5 text-xs font-semibold transition"
                   >
-                    <Navigation size={17} /> Navigate
+                    <Navigation size={17} /> OSM Route
                   </a>
                   {order.customerPhone ? (
                     <a

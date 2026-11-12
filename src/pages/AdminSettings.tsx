@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { deleteField, doc, setDoc, updateDoc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
-import { CheckCircle2, Copy, Eye, ImagePlus, Upload, XCircle } from 'lucide-react';
+import { CheckCircle2, Copy, Eye, ImagePlus, LocateFixed, MapPin, Upload, XCircle } from 'lucide-react';
 import { db } from '../firebase';
 import type { BusinessHours, DayHours, RestaurantProfile } from '../types';
 import { useStore } from '../context/StoreContext';
@@ -13,8 +13,13 @@ import { api } from '../lib/api';
 import { parseAmount } from '../lib/money';
 import { WEEK_DAYS, isValidTimeZone, normalizeHours } from '../lib/hours';
 import { getStoreStatus } from '../lib/storeStatus';
+import { geocodeAddressNominatim, isValidGeoPoint, reverseGeocodeNominatim, sanitizeGeoPoint } from '../lib/geo';
 import { DOC_BUDGET_BYTES, estimateDocBytes, formatBytes, resizeWithPreset } from '../utils/imageUpload';
 import { friendlyError } from '../utils/errorHandling';
+
+const OrderTrackingMap = lazy(() =>
+  import('../components/OrderTrackingMap').then((m) => ({ default: m.OrderTrackingMap })),
+);
 
 type Tab = 'store' | 'ordering' | 'payments' | 'hours' | 'appearance';
 const TABS: { id: Tab; label: string }[] = [
@@ -377,9 +382,100 @@ export const AdminSettings: React.FC = () => {
                     <input type="email" value={draft.email || ''} onChange={(e) => update({ email: e.target.value.slice(0, 150) })} className={adminInput} />
                   </Field>
                 </div>
-                <Field label="Address" hint="Customers get a “Get directions” link.">
-                  <input value={draft.address || ''} onChange={(e) => update({ address: e.target.value.slice(0, 200) })} className={adminInput} />
+                <Field label="Address" hint="Customers get a live OpenStreetMap view and directions link.">
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      value={draft.address || ''}
+                      onChange={(e) => update({ address: e.target.value.slice(0, 200) })}
+                      className={`${adminInput} flex-1`}
+                      placeholder="Street address or food trailer spot"
+                    />
+                    <div className="flex gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!draft.address?.trim()) {
+                            toast.error('Enter an address first, or tap Use current GPS.');
+                            return;
+                          }
+                          const pt = await geocodeAddressNominatim(draft.address);
+                          if (pt) {
+                            update({ location: pt });
+                            toast.success('Pinned address on OpenStreetMap');
+                          } else {
+                            toast.error('Could not find that address on OpenStreetMap.');
+                          }
+                        }}
+                        className="min-h-[42px] px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-xs font-semibold flex items-center gap-1.5 transition"
+                      >
+                        <MapPin size={14} /> Locate address
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!('geolocation' in navigator)) {
+                            toast.error('GPS is not supported by this browser.');
+                            return;
+                          }
+                          navigator.geolocation.getCurrentPosition(
+                            async (pos) => {
+                              const pt = sanitizeGeoPoint({
+                                lat: pos.coords.latitude,
+                                lng: pos.coords.longitude,
+                                accuracy: pos.coords.accuracy,
+                                updatedAt: Date.now(),
+                              });
+                              if (pt) {
+                                const rev = await reverseGeocodeNominatim(pt.lat, pt.lng);
+                                update({
+                                  location: pt,
+                                  ...(rev && !draft.address?.trim() ? { address: rev.slice(0, 200) } : {}),
+                                });
+                                toast.success('Set trailer GPS to your current location');
+                              }
+                            },
+                            () => toast.error('Could not read GPS location. Check browser permissions.'),
+                            { enableHighAccuracy: true, timeout: 10000 },
+                          );
+                        }}
+                        className="min-h-[42px] px-3 py-2 rounded-xl bg-gray-900 hover:bg-black text-white text-xs font-semibold flex items-center gap-1.5 transition"
+                      >
+                        <LocateFixed size={14} /> Use current GPS
+                      </button>
+                    </div>
+                  </div>
                 </Field>
+
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center justify-between text-xs text-gray-500">
+                    <span className="font-semibold text-gray-700">OpenStreetMap pin (used for live order tracking & driver routes)</span>
+                    {isValidGeoPoint(draft.location) && (
+                      <button
+                        type="button"
+                        onClick={() => update({ location: undefined })}
+                        className="text-red-600 font-semibold hover:underline"
+                      >
+                        Clear GPS pin
+                      </button>
+                    )}
+                  </div>
+                  <Suspense
+                    fallback={
+                      <div className="h-52 rounded-2xl bg-gray-100 flex items-center justify-center text-gray-400">
+                        <Spinner size={18} />
+                      </div>
+                    }
+                  >
+                    <OrderTrackingMap
+                      storePoint={draft.location || null}
+                      storeLabel={draft.name || 'Huddle Snack Stop'}
+                      onSelectPoint={(pt) => update({ location: pt })}
+                      editablePin="store"
+                      showRoute={false}
+                      heightClassName="h-52 sm:h-60"
+                    />
+                  </Suspense>
+                </div>
               </Card>
               <Card title="Social links" description="Shown as icons in your storefront footer. Use full links starting with https://">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

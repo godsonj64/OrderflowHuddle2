@@ -45,6 +45,7 @@ import { effectiveHours, getStoreStatus, prepMinutes, scheduleDaysAhead } from '
 import { formatAbsoluteSlot, isValidScheduledTime } from './src/lib/hours';
 import { generateOrderCode } from './src/lib/ids';
 import { fromCents, roundMoney, toCents } from './src/lib/money';
+import { sanitizeGeoPoint } from './src/lib/geo';
 
 // ---------------------------------------------------------------------------
 // Setup
@@ -565,6 +566,8 @@ async function startServer() {
       const chargeCard = paymentMethod === 'card' && !isFree;
       if (chargeCard && totals.totalCents < MIN_CARD_CHARGE_CENTS) throw new HttpError(409, 'Card payments must be at least $0.50.');
 
+      const deliveryLocation = orderType === 'delivery' ? sanitizeGeoPoint(body.deliveryLocation) : null;
+
       const orderData: Omit<Order, 'id' | 'createdAt'> & Record<string, unknown> = {
         customerId: user.uid,
         customerName,
@@ -591,6 +594,7 @@ async function startServer() {
         deliveryTip: totals.deliveryTip,
         total: totals.total,
         deliveryAddress: orderType === 'delivery' ? deliveryAddress : undefined,
+        deliveryLocation: deliveryLocation || undefined,
         notes: notes || undefined,
         scheduledFor: scheduledFor ? Timestamp.fromDate(scheduledFor) : undefined,
         scheduledTime: scheduledFor ? formatAbsoluteSlot(scheduledFor, timeZone) : undefined,
@@ -816,6 +820,63 @@ async function startServer() {
         }
       });
       res.json({ ok: true });
+    }),
+  );
+
+  // Real-time GPS tracking store (in-memory + best-effort Firestore persistence)
+  const liveOrderLocations = new Map<
+    string,
+    { driverLocation?: ReturnType<typeof sanitizeGeoPoint>; deliveryLocation?: ReturnType<typeof sanitizeGeoPoint>; updatedAt: number }
+  >();
+
+  app.get(
+    '/api/orders/:id/location',
+    route(async (req, res) => {
+      await authenticate(req);
+      const id = str(req.params.id, 64);
+      const entry = liveOrderLocations.get(id);
+      res.json({
+        driverLocation: entry?.driverLocation || null,
+        deliveryLocation: entry?.deliveryLocation || null,
+        updatedAt: entry?.updatedAt || null,
+      });
+    }),
+  );
+
+  app.post(
+    '/api/orders/:id/location',
+    route(async (req, res) => {
+      const user = await authenticate(req);
+      rateLimit(`gps:${user.uid}`, 120, 60_000);
+      const id = str(req.params.id, 64);
+      if (!id || id.includes('/')) throw new HttpError(400, 'Invalid order id.');
+
+      const driverLoc = sanitizeGeoPoint(req.body?.driverLocation);
+      const deliveryLoc = sanitizeGeoPoint(req.body?.deliveryLocation);
+      if (!driverLoc && !deliveryLoc) throw new HttpError(400, 'Valid GPS coordinates are required.');
+
+      const current = liveOrderLocations.get(id) || { updatedAt: Date.now() };
+      const next = {
+        driverLocation: driverLoc || current.driverLocation,
+        deliveryLocation: deliveryLoc || current.deliveryLocation,
+        updatedAt: Date.now(),
+      };
+      liveOrderLocations.set(id, next);
+
+      // Best-effort persistence to Firestore if Admin SDK has credentials
+      const patch: Record<string, unknown> = { updatedAt: serverTimestamp() };
+      if (driverLoc) patch.driverLocation = driverLoc;
+      if (deliveryLoc) patch.deliveryLocation = deliveryLoc;
+      ordersCol()
+        .doc(id)
+        .update(patch)
+        .catch(() => undefined);
+
+      res.json({
+        ok: true,
+        driverLocation: next.driverLocation || null,
+        deliveryLocation: next.deliveryLocation || null,
+      });
     }),
   );
 

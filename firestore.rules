@@ -72,11 +72,26 @@ service cloud.firestore {
              (!('createdAt' in data) || data.createdAt is timestamp);
     }
 
+    function isValidGeoPoint(p) {
+      return p is map &&
+             p.lat is number && p.lat >= -90 && p.lat <= 90 &&
+             p.lng is number && p.lng >= -180 && p.lng <= 180 &&
+             (!('accuracy' in p) || (p.accuracy is number && p.accuracy >= 0)) &&
+             (!('heading' in p) || p.heading == null || (p.heading is number && p.heading >= 0 && p.heading <= 360)) &&
+             (!('speed' in p) || p.speed == null || (p.speed is number && p.speed >= 0)) &&
+             (!('updatedAt' in p) || (p.updatedAt is number && p.updatedAt > 0)) &&
+             (!('label' in p) || (p.label is string && p.label.size() <= 300));
+    }
+
+    function optGeoPoint(data, field) {
+      return !(field in data) || data[field] == null || isValidGeoPoint(data[field]);
+    }
+
     function isValidRestaurantProfile(data) {
       return data.keys().hasAll(['name', 'isAcceptingOrders']) &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.isAcceptingOrders is bool &&
-             optString(data, 'description', 1000) &&
+             optString(data, 'description', 500) &&
              optString(data, 'address', 200) &&
              optString(data, 'phone', 20) &&
              optString(data, 'email', 150) &&
@@ -105,7 +120,8 @@ service cloud.firestore {
              optBool(data, 'isGalleryEnabled') &&
              (!('galleryImageUrls' in data) || (data.galleryImageUrls is list && data.galleryImageUrls.size() <= 12)) &&
              (!('theme' in data) || data.theme is map) &&
-             (!('social' in data) || data.social is map);
+             (!('social' in data) || data.social is map) &&
+             optGeoPoint(data, 'location');
     }
 
     // Fields kitchen staff may change from the dashboard (busy mode, wait time).
@@ -153,6 +169,8 @@ service cloud.firestore {
              optString(d, 'driverName', 100) &&
              (!('deliveryStatus' in d) || d.deliveryStatus in ['pending', 'assigned', 'picked_up', 'delivered']) &&
              (!('proofOfDeliveryImage' in d) || (d.proofOfDeliveryImage is string && d.proofOfDeliveryImage.size() <= 1048576)) &&
+             optGeoPoint(d, 'deliveryLocation') &&
+             optGeoPoint(d, 'driverLocation') &&
              optString(d, 'cancelReason', 300) &&
              (!('cancelledBy' in d) || d.cancelledBy in ['customer', 'staff', 'system']) &&
              (!('updatedAt' in d) || d.updatedAt is timestamp);
@@ -305,6 +323,7 @@ service cloud.firestore {
              d.items is list && d.items.size() > 0 && d.items.size() <= 60 &&
              d.type in ['pickup', 'delivery'] &&
              optString(d, 'deliveryAddress', 500) &&
+             optGeoPoint(d, 'deliveryLocation') &&
              d.status in ['new', 'payment_pending'] &&
              d.paymentMethod in ['card', 'cash'] &&
              d.paymentStatus in ['pending', 'paid'] &&
@@ -331,15 +350,22 @@ service cloud.firestore {
              (
                (isStaffRole(r) &&
                  changed.hasOnly(['status', 'updatedAt', 'paymentStatus', 'paidAt', 'paymentCollectedBy', 'driverId',
-                                  'driverName', 'deliveryStatus', 'proofOfDeliveryImage', 'cancelReason', 'cancelledBy']) &&
+                                  'driverName', 'deliveryStatus', 'proofOfDeliveryImage', 'deliveryLocation', 'driverLocation',
+                                  'cancelReason', 'cancelledBy']) &&
                  validStatusChange()) ||
                (r == 'driver' &&
                  resource.data.type == 'delivery' &&
                  changed.hasOnly(['status', 'deliveryStatus', 'driverId', 'driverName', 'updatedAt',
-                                  'proofOfDeliveryImage', 'paymentStatus', 'paidAt', 'paymentCollectedBy']) &&
+                                  'proofOfDeliveryImage', 'deliveryLocation', 'driverLocation',
+                                  'paymentStatus', 'paidAt', 'paymentCollectedBy']) &&
                  (!('driverId' in resource.data) || resource.data.driverId == request.auth.uid) &&
                  request.resource.data.driverId == request.auth.uid &&
                  request.resource.data.status in ['preparing', 'ready', 'out_for_delivery', 'completed']) ||
+               // Customer can update their delivery GPS pin while order is active
+               (isAuthenticated() && resource.data.customerId == request.auth.uid &&
+                 resource.data.type == 'delivery' &&
+                 !(resource.data.status in ['completed', 'cancelled']) &&
+                 changed.hasOnly(['deliveryLocation', 'updatedAt'])) ||
                // Customer can complete payment for their pending card order
                (isAuthenticated() && resource.data.customerId == request.auth.uid &&
                  resource.data.status == 'payment_pending' &&

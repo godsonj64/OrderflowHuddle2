@@ -126,6 +126,10 @@
         "social": {
           "type": "object",
           "description": "instagram, tiktok, facebook, website, maps URLs"
+        },
+        "location": {
+          "type": "object",
+          "description": "GPS coordinates of the restaurant or food trailer (lat, lng, label)"
         }
       },
       "required": [
@@ -642,6 +646,14 @@
         },
         "ratingComment": {
           "type": "string"
+        },
+        "deliveryLocation": {
+          "type": "object",
+          "description": "Customer delivery GPS coordinates (lat, lng, label)"
+        },
+        "driverLocation": {
+          "type": "object",
+          "description": "Live driver GPS coordinates (lat, lng, accuracy, heading, speed, updatedAt)"
         },
         "updatedAt": {
           "type": "string",

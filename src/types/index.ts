@@ -1,3 +1,6 @@
+import type { GeoPoint } from '../lib/geo';
+export type { GeoPoint } from '../lib/geo';
+
 export type UserRole = 'admin' | 'restaurant_owner' | 'manager' | 'staff' | 'driver' | 'customer';
 
 /** Roles that can manage the business (menu, settings, promos, users, refunds). */
@@ -134,6 +137,7 @@ export interface RestaurantProfile {
   totalRatings?: number;
   theme?: StorefrontTheme;
   social?: SocialLinks;
+  location?: GeoPoint;
 }
 
 export interface MenuCategory {
@@ -253,6 +257,8 @@ export interface Order {
   driverName?: string;
   deliveryStatus?: 'pending' | 'assigned' | 'picked_up' | 'delivered';
   proofOfDeliveryImage?: string;
+  deliveryLocation?: GeoPoint;
+  driverLocation?: GeoPoint;
   createdAt: any; // Firestore Timestamp
   updatedAt?: any;
 }

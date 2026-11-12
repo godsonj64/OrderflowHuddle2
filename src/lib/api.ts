@@ -46,7 +46,7 @@ export const apiPost = <T>(path: string, body: unknown = {}) => request<T>('POST
 // ---------------------------------------------------------------------------
 
 import type { OrderTotals, ModifierSelection, TipChoice } from './pricing';
-import type { OrderStatus, OrderType, PaymentMethod, PaymentStatus } from '../types';
+import type { GeoPoint, OrderStatus, OrderType, PaymentMethod, PaymentStatus } from '../types';
 
 export interface CheckoutRequest {
   items: { itemId: string; quantity: number; selections: ModifierSelection[]; notes?: string }[];
@@ -55,6 +55,7 @@ export interface CheckoutRequest {
   customerName: string;
   customerPhone: string;
   deliveryAddress?: string;
+  deliveryLocation?: GeoPoint | null;
   notes?: string;
   scheduledFor?: string | null;
   promoCode?: string | null;
@@ -94,4 +95,13 @@ export const api = {
     apiPost<{ refundAmount: number; paymentStatus: PaymentStatus; status: OrderStatus }>(`/api/orders/${encodeURIComponent(orderId)}/refund`, { amount, reason }),
   rate: (orderId: string, rating: number, comment?: string) =>
     apiPost<{ ok: true }>(`/api/orders/${encodeURIComponent(orderId)}/rate`, { rating, comment }),
+  getOrderLocation: (orderId: string) =>
+    apiGet<{ driverLocation: GeoPoint | null; deliveryLocation: GeoPoint | null; updatedAt: number | null }>(
+      `/api/orders/${encodeURIComponent(orderId)}/location`,
+    ),
+  updateOrderLocation: (orderId: string, body: { driverLocation?: GeoPoint | null; deliveryLocation?: GeoPoint | null }) =>
+    apiPost<{ ok: true; driverLocation: GeoPoint | null; deliveryLocation: GeoPoint | null }>(
+      `/api/orders/${encodeURIComponent(orderId)}/location`,
+      body,
+    ),
 };

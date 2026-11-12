@@ -1,10 +1,26 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { doc, onSnapshot, serverTimestamp, updateDoc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
-import { Banknote, Camera, CheckCircle, ChefHat, Clock, CreditCard, Package, Phone, RotateCcw, Star, Truck, XCircle } from 'lucide-react';
+import {
+  Banknote,
+  Camera,
+  CheckCircle,
+  ChefHat,
+  Clock,
+  CreditCard,
+  LocateFixed,
+  MapPin,
+  Navigation,
+  Package,
+  Phone,
+  RotateCcw,
+  Star,
+  Truck,
+  XCircle,
+} from 'lucide-react';
 import { db } from '../firebase';
-import type { Order } from '../types';
+import type { GeoPoint, Order } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { useStore } from '../context/StoreContext';
@@ -15,8 +31,13 @@ import { customerStatusLabel, isCashDue, netAmount } from '../lib/orderStatus';
 import { formatTimeLabel } from '../lib/hours';
 import { prepMinutes } from '../lib/storeStatus';
 import { toDate } from '../lib/dates';
+import { geocodeAddressNominatim, isValidGeoPoint, sanitizeGeoPoint } from '../lib/geo';
 import { ConfirmDialog, PageSpinner, Spinner } from '../components/ui';
 import { useStorefrontUI } from '../components/Layout';
+
+const OrderTrackingMap = lazy(() =>
+  import('../components/OrderTrackingMap').then((m) => ({ default: m.OrderTrackingMap })),
+);
 
 const STATUS_TOASTS: Record<string, string> = {
   confirmed: 'The restaurant accepted your order!',
@@ -26,6 +47,13 @@ const STATUS_TOASTS: Record<string, string> = {
   completed: 'Enjoy your meal!',
   cancelled: 'Your order was cancelled.',
 };
+
+function pickNewestGeoPoint(a?: GeoPoint | null, b?: GeoPoint | null): GeoPoint | null {
+  const va = isValidGeoPoint(a) ? a : null;
+  const vb = isValidGeoPoint(b) ? b : null;
+  if (va && vb) return (vb.updatedAt || 0) >= (va.updatedAt || 0) ? vb : va;
+  return vb || va || null;
+}
 
 export const OrderTracker: React.FC = () => {
   const { orderId } = useParams<{ orderId: string }>();
@@ -42,6 +70,15 @@ export const OrderTracker: React.FC = () => {
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState('');
   const [submittingRating, setSubmittingRating] = useState(false);
+
+  // Real-time GPS & OpenStreetMap state
+  const [geocodedStore, setGeocodedStore] = useState<GeoPoint | null>(null);
+  const [geocodedDelivery, setGeocodedDelivery] = useState<GeoPoint | null>(null);
+  const [serverDriverLoc, setServerDriverLoc] = useState<GeoPoint | null>(null);
+  const [serverDeliveryLoc, setServerDeliveryLoc] = useState<GeoPoint | null>(null);
+  const [customerLiveGps, setCustomerLiveGps] = useState<GeoPoint | null>(null);
+  const [locatingMe, setLocatingMe] = useState(false);
+
   const prevStatus = useRef<string | null>(null);
   const paymentChecked = useRef(false);
 
@@ -73,8 +110,58 @@ export const OrderTracker: React.FC = () => {
     return () => unsub();
   }, [orderId, user, authLoading]);
 
+  // Poll real-time GPS location endpoint while order is active
+  useEffect(() => {
+    if (!order || ['completed', 'cancelled', 'payment_pending'].includes(order.status)) return;
+    let active = true;
+    const pull = () => {
+      api
+        .getOrderLocation(order.id)
+        .then((res) => {
+          if (!active) return;
+          if (isValidGeoPoint(res.driverLocation)) setServerDriverLoc(res.driverLocation);
+          if (isValidGeoPoint(res.deliveryLocation)) setServerDeliveryLoc(res.deliveryLocation);
+        })
+        .catch(() => undefined);
+    };
+    pull();
+    const timer = window.setInterval(pull, 4000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [order?.id, order?.status]);
+
+  // Geocode restaurant address if profile.location is not explicitly set
+  useEffect(() => {
+    if (isValidGeoPoint(profile?.location)) {
+      setGeocodedStore(profile!.location);
+      return;
+    }
+    if (!profile?.address) return;
+    const ctrl = new AbortController();
+    geocodeAddressNominatim(profile.address, ctrl.signal).then((pt) => {
+      if (!ctrl.signal.aborted && pt) setGeocodedStore(pt);
+    });
+    return () => ctrl.abort();
+  }, [profile?.location, profile?.address]);
+
+  // Geocode customer delivery address if order.deliveryLocation is not explicitly set
+  useEffect(() => {
+    if (!order || order.type !== 'delivery') return;
+    if (isValidGeoPoint(order.deliveryLocation)) {
+      setGeocodedDelivery(order.deliveryLocation);
+      return;
+    }
+    if (!order.deliveryAddress) return;
+    const ctrl = new AbortController();
+    geocodeAddressNominatim(order.deliveryAddress, ctrl.signal).then((pt) => {
+      if (!ctrl.signal.aborted && pt) setGeocodedDelivery(pt);
+    });
+    return () => ctrl.abort();
+  }, [order?.type, order?.deliveryLocation, order?.deliveryAddress]);
+
   // Self-heal: if the payment went through but the confirmation never reached us
-  // (closed tab, flaky network), ask the server to check with Stripe once.
   useEffect(() => {
     if (!order || paymentChecked.current) return;
     if (order.status === 'payment_pending' && order.paymentMethod !== 'cash') {
@@ -86,6 +173,71 @@ export const OrderTracker: React.FC = () => {
         .finally(() => setCheckingPayment(false));
     }
   }, [order]);
+
+  const storePoint = useMemo(
+    () => (isValidGeoPoint(profile?.location) ? profile!.location : geocodedStore),
+    [profile?.location, geocodedStore],
+  );
+
+  const deliveryPoint = useMemo(
+    () => pickNewestGeoPoint(order?.deliveryLocation, serverDeliveryLoc) || geocodedDelivery,
+    [order?.deliveryLocation, serverDeliveryLoc, geocodedDelivery],
+  );
+
+  const driverPoint = useMemo(
+    () => pickNewestGeoPoint(order?.driverLocation, serverDriverLoc),
+    [order?.driverLocation, serverDriverLoc],
+  );
+
+  const saveCustomerDeliveryPin = async (point: GeoPoint) => {
+    if (!order || order.type !== 'delivery') return;
+    const clean = sanitizeGeoPoint({ ...point, updatedAt: Date.now() });
+    if (!clean) return;
+    setServerDeliveryLoc(clean);
+    try {
+      await Promise.allSettled([
+        api.updateOrderLocation(order.id, { deliveryLocation: clean }),
+        updateDoc(doc(db, 'orders', order.id), { deliveryLocation: clean, updatedAt: serverTimestamp() }),
+      ]);
+      toast.success('Delivery GPS pin updated for your driver');
+    } catch {
+      toast.error('Could not update GPS pin.');
+    }
+  };
+
+  const shareMyCurrentGps = () => {
+    if (!('geolocation' in navigator)) {
+      toast.error('GPS is not supported by this browser.');
+      return;
+    }
+    setLocatingMe(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const pt: GeoPoint = {
+          lat: Number(pos.coords.latitude.toFixed(6)),
+          lng: Number(pos.coords.longitude.toFixed(6)),
+          accuracy: Math.round(pos.coords.accuracy),
+          updatedAt: Date.now(),
+        };
+        setCustomerLiveGps(pt);
+        if (order?.type === 'delivery' && !['completed', 'cancelled'].includes(order.status)) {
+          await saveCustomerDeliveryPin(pt);
+        } else {
+          toast.success('Showing your live GPS distance on the map');
+        }
+        setLocatingMe(false);
+      },
+      (err) => {
+        setLocatingMe(false);
+        toast.error(
+          err.code === err.PERMISSION_DENIED
+            ? 'Location permission was denied. Enable location access in your browser settings.'
+            : 'Could not get your GPS location.',
+        );
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 5000 },
+    );
+  };
 
   if (state === 'loading' || authLoading) return <PageSpinner label="Loading your order…" />;
 
@@ -133,7 +285,6 @@ export const OrderTracker: React.FC = () => {
         const res = await api.cancel(order.id, 'Cancelled by customer');
         toast.success(res.refunded ? 'Order cancelled. Your refund is on its way.' : 'Order cancelled.');
       } catch {
-        // Direct Firestore cancellation fallback
         await updateDoc(doc(db, 'orders', order.id), {
           status: 'cancelled',
           cancelledBy: 'customer',
@@ -157,7 +308,6 @@ export const OrderTracker: React.FC = () => {
       try {
         await api.rate(order.id, rating, comment.trim());
       } catch {
-        // Direct Firestore rating fallback
         await updateDoc(doc(db, 'orders', order.id), {
           rating,
           ...(comment.trim() ? { ratingComment: comment.trim() } : {}),
@@ -194,17 +344,20 @@ export const OrderTracker: React.FC = () => {
     ['Driver tip', order.deliveryTip],
   ];
 
+  const showLiveMap = !cancelled && !pendingPayment && (isDelivery || !!storePoint || !!customerLiveGps);
+  const mapDestPoint = isDelivery ? deliveryPoint : customerLiveGps;
+
   return (
     <div className="max-w-2xl mx-auto space-y-4">
       {(location.state as { placed?: boolean } | null)?.placed && !cancelled && (
         <div className="rounded-card bg-emerald-50 border border-emerald-200 text-emerald-900 px-4 py-3 text-sm font-semibold">
-          🎉 Thanks{order.customerName ? `, ${order.customerName.split(' ')[0]}` : ''}! Your order was sent to the kitchen.
+          Thanks{order.customerName ? `, ${order.customerName.split(' ')[0]}` : ''}! Your order was sent to the kitchen.
         </div>
       )}
 
       <section className="bg-card rounded-card border border-line p-5 sm:p-7">
         <div className="text-center">
-          <p className="text-xs font-bold uppercase tracking-widest text-muted">Order #{orderCode(order)}</p>
+          <p className="text-xs font-bold uppercase tracking-widest text-muted font-mono tabular-nums">Order #{orderCode(order)}</p>
           <h1 className="font-display text-2xl sm:text-3xl font-extrabold mt-1">
             {pendingPayment ? (checkingPayment ? 'Confirming payment…' : 'Payment not completed') : customerStatusLabel(order)}
           </h1>
@@ -264,12 +417,26 @@ export const OrderTracker: React.FC = () => {
         )}
 
         {isDelivery && order.driverName && !cancelled && order.status !== 'completed' && (
-          <div className="mt-6 flex items-center gap-3 rounded-card bg-soft p-4">
-            <Truck className="text-brand shrink-0" size={22} />
-            <div className="text-sm">
-              <p className="font-bold">{order.driverName} is your driver</p>
-              <p className="text-muted">{order.deliveryStatus === 'picked_up' ? 'Heading your way now.' : 'Heading to the restaurant to pick up your order.'}</p>
+          <div className="mt-6 flex items-center justify-between gap-3 rounded-card bg-soft p-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <Truck className="text-brand shrink-0" size={22} />
+              <div className="text-sm min-w-0">
+                <p className="font-bold truncate">{order.driverName} is your driver</p>
+                <p className="text-muted text-xs sm:text-sm">
+                  {driverPoint
+                    ? 'Sharing real-time GPS location on the map below.'
+                    : order.deliveryStatus === 'picked_up'
+                      ? 'Heading your way now.'
+                      : 'Heading to the restaurant to pick up your order.'}
+                </p>
+              </div>
             </div>
+            {driverPoint && (
+              <span className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-700 text-xs font-bold">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                Live GPS
+              </span>
+            )}
           </div>
         )}
 
@@ -292,6 +459,85 @@ export const OrderTracker: React.FC = () => {
         </div>
       </section>
 
+      {/* Real-time OpenStreetMap + GPS tracking section */}
+      {showLiveMap && (
+        <section className="bg-card rounded-card border border-line p-4 sm:p-6 space-y-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="font-bold text-base flex items-center gap-2">
+                <MapPin size={17} className="text-brand" />
+                {isDelivery ? 'Live delivery map' : 'Pickup location & route'}
+              </h2>
+              <p className="text-xs text-muted mt-0.5">
+                {isDelivery
+                  ? driverPoint
+                    ? 'Tracking your driver in real time on OpenStreetMap.'
+                    : order.status === 'completed'
+                      ? 'Delivered destination.'
+                      : 'Pin your exact drop-off spot so your driver can find you right away.'
+                  : profile?.address || 'Find us on OpenStreetMap or share your GPS to see your route.'}
+              </p>
+            </div>
+
+            {order.status !== 'completed' && (
+              <button
+                type="button"
+                onClick={shareMyCurrentGps}
+                disabled={locatingMe}
+                className="min-h-[38px] px-3.5 py-2 rounded-btn bg-soft hover:opacity-90 text-xs font-semibold flex items-center gap-1.5 transition disabled:opacity-50"
+              >
+                {locatingMe ? <Spinner size={14} /> : <LocateFixed size={14} />}
+                {isDelivery ? 'Pin my exact GPS' : customerLiveGps ? 'Update my GPS' : 'Show my distance'}
+              </button>
+            )}
+          </div>
+
+          {storePoint || mapDestPoint || driverPoint ? (
+            <Suspense
+              fallback={
+                <div className="h-64 rounded-2xl bg-soft flex items-center justify-center text-muted text-sm">
+                  <Spinner size={18} />
+                </div>
+              }
+            >
+              <OrderTrackingMap
+                storePoint={storePoint}
+                storeLabel={profile?.name || 'Restaurant'}
+                destinationPoint={mapDestPoint}
+                destinationLabel={isDelivery ? order.deliveryAddress || 'Drop-off' : 'Your location'}
+                driverPoint={isDelivery && order.status !== 'completed' ? driverPoint : null}
+                driverLabel={order.driverName ? `${order.driverName} (Live GPS)` : 'Driver (Live GPS)'}
+                onSelectPoint={isDelivery && order.status !== 'completed' ? saveCustomerDeliveryPin : undefined}
+                editablePin="destination"
+                heightClassName="h-64 sm:h-80"
+              />
+            </Suspense>
+          ) : (
+            <div className="rounded-2xl border border-dashed border-line p-6 text-center space-y-2">
+              <p className="text-sm text-muted">
+                Tap <strong>{isDelivery ? 'Pin my exact GPS' : 'Show my distance'}</strong> to display your live coordinates on OpenStreetMap.
+              </p>
+            </div>
+          )}
+
+          {!isDelivery && (profile?.address || storePoint) && (
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs text-muted">
+              <span>{profile?.address}</span>
+              {storePoint && (
+                <a
+                  href={`https://www.openstreetmap.org/?mlat=${storePoint.lat}&mlon=${storePoint.lng}#map=17/${storePoint.lat}/${storePoint.lng}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-semibold text-brand inline-flex items-center gap-1 hover:underline"
+                >
+                  <Navigation size={12} /> Open in OpenStreetMap
+                </a>
+              )}
+            </div>
+          )}
+        </section>
+      )}
+
       <section className="bg-card rounded-card border border-line p-5 sm:p-7">
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-bold">Payment</h2>
@@ -301,11 +547,13 @@ export const OrderTracker: React.FC = () => {
           </span>
         </div>
         {cashDue ? (
-          <p className="rounded-btn bg-amber-50 border border-amber-200 text-amber-900 px-3 py-2 text-sm font-semibold">
+          <p className="rounded-btn bg-amber-50 border border-amber-200 text-amber-900 px-3 py-2 text-sm font-semibold font-mono tabular-nums">
             Please pay {formatMoney(order.total)} in cash {isDelivery ? 'to your driver' : 'when you pick up'}.
           </p>
         ) : order.paymentStatus === 'paid' ? (
-          <p className="text-sm text-emerald-700 font-semibold">Paid{order.paymentMethod === 'cash' ? ' in cash' : ''} · {formatMoney(order.total)}</p>
+          <p className="text-sm text-emerald-700 font-semibold font-mono tabular-nums">
+            Paid{order.paymentMethod === 'cash' ? ' in cash' : ''} · {formatMoney(order.total)}
+          </p>
         ) : null}
 
         <h2 className="font-bold mt-6 mb-3">Items</h2>
@@ -314,13 +562,13 @@ export const OrderTracker: React.FC = () => {
             <li key={idx} className="flex justify-between gap-3 text-sm">
               <div className="min-w-0">
                 <p className="font-semibold">
-                  <span className="text-muted mr-1.5">{item.quantity}×</span>
+                  <span className="text-muted mr-1.5 font-mono tabular-nums">{item.quantity}×</span>
                   {item.name}
                 </p>
                 {item.selectedModifiers?.length > 0 && <p className="text-xs text-muted">{item.selectedModifiers.map((m) => m.name).join(', ')}</p>}
                 {item.prepNotes && <p className="text-xs text-muted italic">“{item.prepNotes}”</p>}
               </div>
-              <span className="whitespace-nowrap">{formatMoney(item.price * item.quantity)}</span>
+              <span className="whitespace-nowrap font-mono tabular-nums">{formatMoney(item.price * item.quantity)}</span>
             </li>
           ))}
         </ul>
@@ -337,15 +585,15 @@ export const OrderTracker: React.FC = () => {
             .map(([label, value, cls]) => (
               <div key={label} className={`flex justify-between ${cls || ''}`}>
                 <span>{label}</span>
-                <span>{formatMoney(value || 0)}</span>
+                <span className="font-mono tabular-nums">{formatMoney(value || 0)}</span>
               </div>
             ))}
           <div className="flex justify-between font-extrabold text-base pt-2">
             <span>Total</span>
-            <span>{formatMoney(order.total)}</span>
+            <span className="font-mono tabular-nums">{formatMoney(order.total)}</span>
           </div>
           {!!order.refundAmount && order.refundAmount > 0 && (
-            <div className="flex justify-between text-red-700 text-sm">
+            <div className="flex justify-between text-red-700 text-sm font-mono tabular-nums">
               <span>Refunded</span>
               <span>
                 −{formatMoney(order.refundAmount)} (net {formatMoney(netAmount(order))})
