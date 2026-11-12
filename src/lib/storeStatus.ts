@@ -27,6 +27,7 @@ export interface StoreStatus {
   /** Orders can be scheduled for a later time. */
   canSchedule: boolean;
   pausedUntil: Date | null;
+  nextOpenAt?: Date | null;
   timeZone?: string;
 }
 
@@ -64,7 +65,7 @@ export function getStoreStatus(
   options: StoreStatusOptions = {},
 ): StoreStatus {
   if (!profile) {
-    return { state: 'offline', badge: 'Unavailable', detail: '', canOrderNow: false, canSchedule: false, pausedUntil: null };
+    return { state: 'offline', badge: 'Unavailable', detail: '', canOrderNow: false, canSchedule: false, pausedUntil: null, nextOpenAt: null };
   }
   const { hours, timeZone } = effectiveHours(profile, options);
   const scheduling = !!profile.isSchedulePickupEnabled;
@@ -77,6 +78,7 @@ export function getStoreStatus(
       canOrderNow: false,
       canSchedule: false,
       pausedUntil: null,
+      nextOpenAt: null,
       timeZone,
     };
   }
@@ -93,6 +95,7 @@ export function getStoreStatus(
       canOrderNow: false,
       canSchedule: scheduling,
       pausedUntil,
+      nextOpenAt: null,
       timeZone,
     };
   }
@@ -106,6 +109,7 @@ export function getStoreStatus(
       canOrderNow: true,
       canSchedule: scheduling,
       pausedUntil: null,
+      nextOpenAt: null,
       timeZone,
     };
   }
@@ -118,6 +122,7 @@ export function getStoreStatus(
     canOrderNow: false,
     canSchedule: scheduling,
     pausedUntil: null,
+    nextOpenAt: next,
     timeZone,
   };
 }

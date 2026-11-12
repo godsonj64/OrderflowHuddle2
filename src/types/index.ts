@@ -87,6 +87,11 @@ export interface StorefrontTheme {
   announcementEnabled?: boolean;
   announcementText?: string;
   announcementTone?: AnnouncementTone;
+  showPromoCard?: boolean;
+  promoTitle?: string;
+  promoSubtitle?: string;
+  promoBannerUrl?: string;
+  promoOverlay?: number; // 0-90 (%)
 }
 
 export interface SocialLinks {

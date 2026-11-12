@@ -22,20 +22,20 @@
   --color-gray-50: #FBF9F6;
 
   /*
-   * Storefront design tokens. These defaults are the "Classic" theme; the owner's
+   * Storefront design tokens. These defaults are the Kupa Light Mode theme; the owner's
    * theme (Admin → Settings → Appearance) overrides them at runtime, see src/lib/theme.ts.
    */
-  --color-brand: #1A211A;
+  --color-brand: #287350;
   --color-on-brand: #FFFFFF;
-  --color-accent: #EADDC5;
-  --color-on-accent: #111111;
-  --color-page: #FBF9F6;
+  --color-accent: #EBF5F0;
+  --color-on-accent: #121615;
+  --color-page: #FFFFFF;
   --color-card: #FFFFFF;
-  --color-ink: #141A14;
-  --color-muted: #6B7D6B;
-  --color-line: #EFE7DA;
-  --color-soft: #F4EEE4;
-  --radius-card: 16px;
+  --color-ink: #121615;
+  --color-muted: #7A8280;
+  --color-line: #EDF0EE;
+  --color-soft: #F6F7F8;
+  --radius-card: 18px;
   --radius-btn: 14px;
   --radius-chip: 9999px;
 }

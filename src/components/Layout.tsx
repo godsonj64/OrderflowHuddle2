@@ -1,6 +1,19 @@
 import React, { createContext, useContext, useEffect, useLayoutEffect, useMemo, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
-import { Facebook, Globe, Home as HomeIcon, Instagram, LayoutDashboard, Music2, ShoppingBag, ShoppingCart, Truck, User } from 'lucide-react';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import {
+  ArrowLeft,
+  Bell,
+  BookOpen,
+  Facebook,
+  Globe,
+  Home as HomeIcon,
+  Instagram,
+  LayoutDashboard,
+  Music2,
+  ShoppingCart,
+  Truck,
+  User,
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { useStore } from '../context/StoreContext';
@@ -44,7 +57,7 @@ function useApplyTheme() {
 function StatusLine() {
   const { status, profileLoading } = useStore();
   if (profileLoading) return <span className="h-3 w-24 rounded bg-soft animate-pulse inline-block" />;
-  const tone = status.state === 'open' ? 'text-emerald-700 font-semibold' : status.state === 'paused' ? 'text-amber-700 font-semibold' : 'text-muted';
+  const tone = status.state === 'open' ? 'text-brand font-semibold' : status.state === 'paused' ? 'text-amber-700 font-semibold' : 'text-muted';
   return (
     <span className="flex items-center gap-1.5 text-[11px] sm:text-xs text-muted leading-tight truncate">
       <span className={`truncate ${tone}`}>{status.badge}</span>
@@ -69,36 +82,70 @@ function AnnouncementBar() {
 }
 
 function Header() {
-  const { profile, profileLoading } = useStore();
+  const { profile, profileLoading, status } = useStore();
   const { userProfile, isStaff, role } = useAuth();
   const { itemCount } = useCart();
   const { openAuth, openProfile } = useStorefrontUI();
+  const location = useLocation();
+  const navigate = useNavigate();
   const name = profile?.name || 'Restaurant';
 
-  return (
-    <header className="sticky top-0 z-40 bg-card/90 backdrop-blur-xl border-b border-line">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-4">
-        <Link to="/" className="flex items-center gap-2.5 min-w-0" aria-label={`${name} home`}>
-          {profileLoading ? (
-            <span className="w-9 h-9 rounded-full bg-soft animate-pulse shrink-0" />
-          ) : profile?.logoUrl ? (
-            <img src={profile.logoUrl} alt="" className="w-9 h-9 sm:w-10 sm:h-10 rounded-full object-cover shrink-0 border border-line" />
-          ) : (
-            <span className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-brand text-on-brand flex items-center justify-center font-display font-bold text-base shrink-0">
-              {name.charAt(0).toUpperCase()}
-            </span>
-          )}
-          <span className="min-w-0 flex flex-col">
-            <span className="font-display font-extrabold text-[15px] sm:text-lg leading-tight truncate">{name}</span>
-            <StatusLine />
-          </span>
-        </Link>
+  const isHome = location.pathname === '/';
+  const isMenuView = isHome && location.hash === '#menu';
+  const mobileTitle = location.pathname.startsWith('/cart')
+    ? 'My Cart'
+    : location.pathname.startsWith('/my-orders')
+      ? 'My Orders'
+      : location.pathname.startsWith('/order/')
+        ? 'Location'
+        : isMenuView
+          ? 'Menu'
+          : 'Home';
 
-        <nav className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+  return (
+    <header className="sticky top-0 z-40 bg-card/95 backdrop-blur-xl border-b border-line/70">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-3 relative">
+        {/* Mobile left action: back button on subpages, or brand avatar on home */}
+        <div className="flex items-center gap-2.5 min-w-0 z-10">
+          {!isHome ? (
+            <button
+              type="button"
+              onClick={() => (window.history.length > 1 ? navigate(-1) : navigate('/'))}
+              className="md:hidden w-9 h-9 rounded-full hover:bg-soft flex items-center justify-center text-ink transition"
+              aria-label="Go back"
+            >
+              <ArrowLeft size={20} />
+            </button>
+          ) : null}
+
+          <Link to="/" className={`${!isHome ? 'hidden md:flex' : 'flex'} items-center gap-2.5 min-w-0`} aria-label={`${name} home`}>
+            {profileLoading ? (
+              <span className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-soft animate-pulse shrink-0" />
+            ) : profile?.logoUrl ? (
+              <img src={profile.logoUrl} alt="" className="w-8 h-8 sm:w-9 sm:h-9 rounded-full object-cover shrink-0 border border-line" />
+            ) : (
+              <span className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-brand text-on-brand flex items-center justify-center font-display font-bold text-sm shrink-0">
+                {name.charAt(0).toUpperCase()}
+              </span>
+            )}
+            <span className="hidden sm:flex min-w-0 flex-col">
+              <span className="font-display font-extrabold text-[15px] sm:text-lg leading-tight truncate">{name}</span>
+              <StatusLine />
+            </span>
+          </Link>
+        </div>
+
+        {/* Mobile centered page title (Kupa aesthetic) */}
+        <div className="md:hidden absolute inset-x-16 flex flex-col items-center justify-center pointer-events-none">
+          <span className="font-display font-extrabold text-base text-ink tracking-tight truncate">{mobileTitle}</span>
+        </div>
+
+        {/* Right navigation controls */}
+        <nav className="flex items-center gap-1.5 sm:gap-2 shrink-0 z-10">
           {isStaff && (
             <Link
               to="/admin"
-              className="min-h-[40px] px-3 py-1.5 rounded-btn bg-soft text-ink hover:opacity-85 text-xs font-semibold flex items-center gap-1.5 transition whitespace-nowrap"
+              className="min-h-[38px] px-3 py-1.5 rounded-btn bg-soft text-ink hover:opacity-85 text-xs font-semibold flex items-center gap-1.5 transition whitespace-nowrap"
               title="Restaurant dashboard"
             >
               <LayoutDashboard size={15} />
@@ -108,14 +155,30 @@ function Header() {
           {role === 'driver' && !isStaff && (
             <Link
               to="/driver"
-              className="min-h-[40px] px-3 py-1.5 rounded-btn bg-soft text-ink hover:opacity-85 text-xs font-semibold flex items-center gap-1.5 transition whitespace-nowrap"
+              className="min-h-[38px] px-3 py-1.5 rounded-btn bg-soft text-ink hover:opacity-85 text-xs font-semibold flex items-center gap-1.5 transition whitespace-nowrap"
               title="Driver dashboard"
             >
               <Truck size={15} />
               <span className="hidden sm:inline">Deliveries</span>
             </Link>
           )}
-          <Link to="/cart" className="hidden md:flex relative min-h-[40px] min-w-[40px] items-center justify-center rounded-full text-ink hover:bg-soft transition" aria-label={`Cart, ${itemCount} items`}>
+
+          {/* Mobile notification / active orders bell (matches Kupa top-right bell icon) */}
+          <Link
+            to="/my-orders"
+            className="md:hidden relative w-9 h-9 rounded-full hover:bg-soft flex items-center justify-center text-ink transition"
+            aria-label="Your orders"
+            title={status.badge}
+          >
+            <Bell size={19} strokeWidth={2} />
+            {status.state === 'open' && <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-brand ring-2 ring-card" />}
+          </Link>
+
+          <Link
+            to="/cart"
+            className="hidden md:flex relative min-h-[40px] min-w-[40px] items-center justify-center rounded-full text-ink hover:bg-soft transition"
+            aria-label={`Cart, ${itemCount} items`}
+          >
             <ShoppingCart size={20} />
             {itemCount > 0 && (
               <span className="absolute -top-0.5 -right-0.5 min-w-5 h-5 px-1 rounded-full bg-brand text-on-brand text-[10px] font-bold font-mono tabular-nums flex items-center justify-center">
@@ -123,19 +186,23 @@ function Header() {
               </span>
             )}
           </Link>
+
           {userProfile ? (
             <button
               onClick={openProfile}
-              className="min-h-[40px] flex items-center gap-2 rounded-full border border-line pl-1.5 pr-1.5 sm:pr-3 py-1 hover:bg-soft transition"
+              className="hidden md:flex min-h-[40px] items-center gap-2 rounded-full border border-line pl-1.5 pr-3 py-1 hover:bg-soft transition"
               aria-label="Your account"
             >
               <span className="w-7 h-7 rounded-full bg-brand text-on-brand flex items-center justify-center text-xs font-bold">
                 {(userProfile.name || userProfile.email || '?').charAt(0).toUpperCase()}
               </span>
-              <span className="hidden sm:inline text-sm font-semibold max-w-[120px] truncate">{userProfile.name || 'Account'}</span>
+              <span className="text-sm font-semibold max-w-[120px] truncate">{userProfile.name || 'Account'}</span>
             </button>
           ) : (
-            <button onClick={openAuth} className="min-h-[40px] bg-brand text-on-brand rounded-btn px-4 py-2 text-xs sm:text-sm font-semibold hover:opacity-90 transition whitespace-nowrap">
+            <button
+              onClick={openAuth}
+              className="hidden md:inline-flex min-h-[40px] bg-brand text-on-brand rounded-btn px-4 py-2 text-xs sm:text-sm font-semibold hover:opacity-90 transition whitespace-nowrap"
+            >
               Sign in
             </button>
           )}
@@ -178,7 +245,7 @@ function Footer() {
         : null;
 
   return (
-    <footer className="bg-card border-t border-line mt-8 pb-24 md:pb-0">
+    <footer className="bg-card border-t border-line mt-10 pb-28 md:pb-0">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 space-y-8">
         <div className="text-center space-y-2">
           <h2 className="font-display text-xl sm:text-2xl font-extrabold">{profile.name}</h2>
@@ -186,7 +253,7 @@ function Footer() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div className="rounded-card border border-line bg-page p-5">
+          <div className="rounded-card border border-line bg-soft/60 p-5">
             <h3 className="text-xs font-bold uppercase tracking-widest text-muted mb-2.5">Location</h3>
             <p className="text-sm">{profile.address || 'Address coming soon'}</p>
             {mapsUrl && (
@@ -196,7 +263,7 @@ function Footer() {
             )}
           </div>
 
-          <div className="rounded-card border border-line bg-page p-5">
+          <div className="rounded-card border border-line bg-soft/60 p-5">
             <h3 className="text-xs font-bold uppercase tracking-widest text-muted mb-2.5">Hours</h3>
             {hasHoursConfigured(profile.businessHours) ? (
               <ul className="text-sm space-y-1 tabular-nums">
@@ -228,7 +295,7 @@ function Footer() {
             )}
           </div>
 
-          <div className="rounded-card border border-line bg-page p-5">
+          <div className="rounded-card border border-line bg-soft/60 p-5">
             <h3 className="text-xs font-bold uppercase tracking-widest text-muted mb-2.5">Contact</h3>
             <div className="text-sm space-y-1.5">
               {profile.phone && (
@@ -272,49 +339,69 @@ function BottomNav() {
   const { itemCount } = useCart();
   const { userProfile } = useAuth();
   const { openAuth, openProfile } = useStorefrontUI();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const isHomeActive = location.pathname === '/' && location.hash !== '#menu';
+  const isMenuActive = location.pathname === '/' && location.hash === '#menu';
+  const isCartActive = location.pathname.startsWith('/cart');
+  const isProfileActive = location.pathname.startsWith('/my-orders');
+
   const item = (active: boolean) =>
-    `relative flex flex-col items-center justify-center gap-0.5 flex-1 min-h-[56px] py-2 text-[11px] font-semibold transition-colors ${active ? 'text-brand' : 'text-muted'}`;
+    `relative flex flex-col items-center justify-center gap-1 flex-1 min-h-[58px] py-1.5 text-[11px] font-semibold transition-colors ${
+      active ? 'text-brand font-bold' : 'text-muted hover:text-ink'
+    }`;
 
   return (
-    <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-card/95 backdrop-blur-xl border-t border-line pb-[env(safe-area-inset-bottom)]" aria-label="Main">
+    <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-card/98 backdrop-blur-xl border-t border-line pb-[env(safe-area-inset-bottom)]" aria-label="Main">
       <div className="grid grid-cols-4 items-center">
-        <NavLink to="/" end className={({ isActive }) => item(isActive)}>
-          {({ isActive }) => (
-            <>
-              {isActive && <span className="absolute top-0 w-8 h-0.5 rounded-full bg-brand" />}
-              <HomeIcon size={21} strokeWidth={isActive ? 2.4 : 1.9} />
-              <span>Menu</span>
-            </>
-          )}
-        </NavLink>
-        <NavLink to="/my-orders" className={({ isActive }) => item(isActive)}>
-          {({ isActive }) => (
-            <>
-              {isActive && <span className="absolute top-0 w-8 h-0.5 rounded-full bg-brand" />}
-              <ShoppingBag size={21} strokeWidth={isActive ? 2.4 : 1.9} />
-              <span>Orders</span>
-            </>
-          )}
-        </NavLink>
-        <NavLink to="/cart" className={({ isActive }) => item(isActive)}>
-          {({ isActive }) => (
-            <>
-              {isActive && <span className="absolute top-0 w-8 h-0.5 rounded-full bg-brand" />}
-              <span className="relative">
-                <ShoppingCart size={21} strokeWidth={isActive ? 2.4 : 1.9} />
-                {itemCount > 0 && (
-                  <span className="absolute -top-1.5 -right-2.5 min-w-4 h-4 px-1 rounded-full bg-brand text-on-brand text-[9px] font-bold font-mono tabular-nums flex items-center justify-center">
-                    {itemCount}
-                  </span>
-                )}
+        <button
+          type="button"
+          onClick={() => {
+            navigate('/');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+          className={item(isHomeActive)}
+        >
+          <HomeIcon size={20} strokeWidth={isHomeActive ? 2.4 : 1.8} />
+          <span>Home</span>
+          {isHomeActive && <span className="w-1 h-1 rounded-full bg-brand" />}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            if (location.pathname !== '/') {
+              navigate('/#menu');
+            } else {
+              window.location.hash = 'menu';
+              document.getElementById('menu-catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+          }}
+          className={item(isMenuActive)}
+        >
+          <BookOpen size={20} strokeWidth={isMenuActive ? 2.4 : 1.8} />
+          <span>Menu</span>
+          {isMenuActive && <span className="w-1 h-1 rounded-full bg-brand" />}
+        </button>
+
+        <NavLink to="/cart" className={item(isCartActive)}>
+          <span className="relative">
+            <ShoppingCart size={20} strokeWidth={isCartActive ? 2.4 : 1.8} />
+            {itemCount > 0 && (
+              <span className="absolute -top-1.5 -right-2.5 min-w-4 h-4 px-1 rounded-full bg-brand text-on-brand text-[9px] font-bold font-mono tabular-nums flex items-center justify-center">
+                {itemCount}
               </span>
-              <span>Cart</span>
-            </>
-          )}
+            )}
+          </span>
+          <span>{itemCount > 0 ? `Cart (${itemCount})` : 'Cart'}</span>
+          {isCartActive && <span className="w-1 h-1 rounded-full bg-brand" />}
         </NavLink>
-        <button onClick={userProfile ? openProfile : openAuth} className={item(false)}>
-          <User size={21} strokeWidth={1.9} />
-          <span>{userProfile ? 'Account' : 'Sign in'}</span>
+
+        <button onClick={userProfile ? openProfile : openAuth} className={item(isProfileActive)}>
+          <User size={20} strokeWidth={isProfileActive ? 2.4 : 1.8} />
+          <span>Profile</span>
+          {isProfileActive && <span className="w-1 h-1 rounded-full bg-brand" />}
         </button>
       </div>
     </nav>
@@ -328,7 +415,7 @@ export const Layout: React.FC = () => {
   const location = useLocation();
   const [authOpen, setAuthOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  const hideBottomNav = location.pathname.startsWith('/cart');
+  const isCartPage = location.pathname.startsWith('/cart');
 
   useEffect(() => {
     document.title = profile?.name ? `${profile.name} · Order online` : 'Order online';
@@ -346,11 +433,11 @@ export const Layout: React.FC = () => {
       <div className="min-h-[100dvh] bg-page text-ink font-sans flex flex-col">
         <AnnouncementBar />
         <Header />
-        <main className={`flex-grow w-full max-w-6xl mx-auto px-4 sm:px-6 py-4 sm:py-8 ${hideBottomNav ? 'pb-40' : 'pb-28'} md:pb-12`}>
+        <main className={`flex-grow w-full max-w-6xl mx-auto px-4 sm:px-6 py-3 sm:py-7 ${isCartPage ? 'pb-48' : 'pb-28'} md:pb-12`}>
           <Outlet />
         </main>
         <Footer />
-        {!hideBottomNav && <BottomNav />}
+        <BottomNav />
         <AuthModal isOpen={authOpen} onClose={() => setAuthOpen(false)} />
         {userProfile && <UserProfileDrawer isOpen={profileOpen} onClose={() => setProfileOpen(false)} userProfile={userProfile} />}
       </div>

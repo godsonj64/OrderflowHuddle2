@@ -120,7 +120,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       prev.badge === next.badge &&
       prev.detail === next.detail &&
       prev.timeZone === next.timeZone &&
-      prev.pausedUntil?.getTime() === next.pausedUntil?.getTime()
+      prev.pausedUntil?.getTime() === next.pausedUntil?.getTime() &&
+      prev.nextOpenAt?.getTime() === next.nextOpenAt?.getTime()
     ) {
       return prev;
     }

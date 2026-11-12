@@ -103,12 +103,14 @@ export function AppearanceSettings({ draft, update }: Props) {
     setTheme({ preset: p.id, brandColor: p.brandColor, accentColor: p.accentColor, mode: p.mode, font: p.font, corners: p.corners });
   };
 
-  const upload = async (kind: 'banner' | 'marquee' | 'gallery', files: FileList | File[]) => {
+  const upload = async (kind: 'banner' | 'promoBanner' | 'marquee' | 'gallery', files: FileList | File[]) => {
     setUploading(kind);
     try {
       const list = Array.from(files);
       if (kind === 'banner') {
         update({ bannerUrl: await resizeWithPreset(list[0], 'banner') });
+      } else if (kind === 'promoBanner') {
+        setTheme({ promoBannerUrl: await resizeWithPreset(list[0], 'banner') });
       } else {
         const key = kind === 'marquee' ? 'marqueeImageUrls' : 'galleryImageUrls';
         const existing = (draft[key] as string[] | undefined) || [];
@@ -227,7 +229,7 @@ export function AppearanceSettings({ draft, update }: Props) {
         </div>
       </Section>
 
-      <Section title="Header banner">
+      <Section title="Header banner" description="Full-width image or brand banner at the top of the storefront.">
         <Choice<HeroStyle>
           value={theme.heroStyle}
           onChange={(heroStyle) => setTheme({ heroStyle })}
@@ -270,10 +272,83 @@ export function AppearanceSettings({ draft, update }: Props) {
                 )}
               </div>
             </div>
-            {!draft.bannerUrl && <p className="text-xs text-gray-500">Without a photo, the banner uses your brand color.</p>}
+            {!draft.bannerUrl && <p className="text-xs text-gray-500">Upload a photo to display the image header banner on the storefront.</p>}
             <Field label={`Photo darkness (${theme.heroOverlay}%)`} hint="Darker makes the text easier to read.">
               <input type="range" min={0} max={90} step={5} value={theme.heroOverlay} onChange={(e) => setTheme({ heroOverlay: Number(e.target.value) })} className="w-full accent-gray-900" />
             </Field>
+          </>
+        )}
+      </Section>
+
+      <Section title="Special offer card" description="Highlight a featured dish or promotion with an optional custom background image.">
+        <Toggle label="Show special offer card" checked={theme.showPromoCard !== false} onChange={(v) => setTheme({ showPromoCard: v })} />
+        {theme.showPromoCard !== false && (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label="Offer title" hint="Leave empty to use your featured dish name.">
+                <input
+                  value={theme.promoTitle || ''}
+                  onChange={(e) => setTheme({ promoTitle: e.target.value.slice(0, 60) })}
+                  className={adminInput}
+                  placeholder="e.g. Chicken Teriyaki"
+                />
+              </Field>
+              <Field label="Offer subtitle" hint="Leave empty to use dish description or promo text.">
+                <input
+                  value={theme.promoSubtitle || ''}
+                  onChange={(e) => setTheme({ promoSubtitle: e.target.value.slice(0, 120) })}
+                  className={adminInput}
+                  placeholder="e.g. Discount 25%"
+                />
+              </Field>
+            </div>
+
+            <Field label="Background image (optional)" hint="Add a background photo behind the special offer banner.">
+              <div className="flex items-center gap-3">
+                <div className="w-40 h-24 rounded-2xl overflow-hidden bg-gray-100 border border-gray-200 flex items-center justify-center shrink-0">
+                  {theme.promoBannerUrl ? (
+                    <img src={theme.promoBannerUrl} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <ImagePlus className="text-gray-300" />
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-sm font-semibold cursor-pointer">
+                    {uploading === 'promoBanner' ? <Spinner size={16} /> : <Upload size={16} />}{' '}
+                    {theme.promoBannerUrl ? 'Replace background' : 'Upload background'}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => e.target.files?.[0] && upload('promoBanner', e.target.files)}
+                    />
+                  </label>
+                  {theme.promoBannerUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setTheme({ promoBannerUrl: '' })}
+                      className="block text-xs font-semibold text-red-600"
+                    >
+                      Remove background
+                    </button>
+                  )}
+                </div>
+              </div>
+            </Field>
+
+            {theme.promoBannerUrl && (
+              <Field label={`Background darkness (${theme.promoOverlay}%)`} hint="Adjust contrast so the offer text stays easy to read.">
+                <input
+                  type="range"
+                  min={0}
+                  max={90}
+                  step={5}
+                  value={theme.promoOverlay}
+                  onChange={(e) => setTheme({ promoOverlay: Number(e.target.value) })}
+                  className="w-full accent-gray-900"
+                />
+              </Field>
+            )}
           </>
         )}
       </Section>

@@ -2,7 +2,25 @@ import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'rea
 import { Link, useNavigate } from 'react-router-dom';
 import { arrayUnion, doc, getDoc, increment, serverTimestamp, setDoc, Timestamp, updateDoc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
-import { AlertCircle, Banknote, Bike, CalendarClock, CreditCard, LocateFixed, Minus, Plus, ShoppingCart, Store, Tag, Trash2, X, Zap } from 'lucide-react';
+import {
+  AlertCircle,
+  Banknote,
+  Bike,
+  CalendarClock,
+  ChevronRight,
+  CreditCard,
+  LocateFixed,
+  MapPin,
+  Minus,
+  Plus,
+  ShoppingCart,
+  Store,
+  Tag,
+  Trash2,
+  UtensilsCrossed,
+  X,
+  Zap,
+} from 'lucide-react';
 import { db } from '../firebase';
 import type { GeoPoint, Order, OrderType, PaymentMethod, PromoCode } from '../types';
 import { useCart } from '../context/CartContext';
@@ -15,12 +33,13 @@ import { formatMoney, fromCents, parseAmount } from '../lib/money';
 import { TIP_PRESETS, computeTotals, promoDiscountCents, promoError, tipCents, type OrderTotals, type TipChoice } from '../lib/pricing';
 import { generateTimeSlots, type TimeSlot } from '../lib/hours';
 import { generateOrderCode } from '../lib/ids';
-import { geocodeAddressNominatim, reverseGeocodeNominatim } from '../lib/geo';
+import { formatDistance, geocodeAddressNominatim, haversineDistanceKm, isValidGeoPoint, reverseGeocodeNominatim, sanitizeGeoPoint } from '../lib/geo';
 import { prepMinutes, scheduleDaysAhead } from '../lib/storeStatus';
-import { ConfirmDialog, Spinner } from '../components/ui';
+import { ConfirmDialog, Sheet, Spinner } from '../components/ui';
 import { reportError } from '../utils/errorHandling';
 
 const PaymentSheet = lazy(() => import('../components/CheckoutForm'));
+const OrderTrackingMap = lazy(() => import('../components/OrderTrackingMap').then((m) => ({ default: m.OrderTrackingMap })));
 
 const PENDING_KEY = 'pending_checkout_order';
 const readPending = () => {
@@ -42,12 +61,17 @@ const writePending = (id: string | null) => {
 const isValidPhone = (p: string) => /^[+()\-.\s\d]{7,20}$/.test(p.trim()) && p.replace(/\D/g, '').length >= 7;
 
 const inputCls =
-  'w-full rounded-btn border border-line bg-page px-3.5 py-3 text-sm text-ink placeholder:text-muted focus:ring-2 focus:ring-brand focus:border-brand outline-none';
+  'w-full rounded-xl border border-line bg-soft/70 focus:bg-card px-3.5 py-3 text-sm text-ink placeholder:text-muted focus:ring-2 focus:ring-brand/20 focus:border-brand outline-none transition';
 
-function Card({ title, children, id }: { title?: React.ReactNode; children: React.ReactNode; id?: string }) {
+function Card({ title, action, children, id }: { title?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode; id?: string }) {
   return (
-    <section id={id} className="bg-card rounded-card border border-line p-4 sm:p-5 scroll-mt-24">
-      {title && <h2 className="font-bold text-base mb-3">{title}</h2>}
+    <section id={id} className="bg-card rounded-2xl border border-line p-4 sm:p-5 scroll-mt-24">
+      {(title || action) && (
+        <div className="flex items-center justify-between gap-2 mb-3.5">
+          {title && <h2 className="font-display font-extrabold text-base text-ink">{title}</h2>}
+          {action}
+        </div>
+      )}
       {children}
     </section>
   );
@@ -70,8 +94,8 @@ function Segmented<T extends string>({
           type="button"
           disabled={disabled}
           onClick={() => onChange(v)}
-          className={`flex flex-col items-center justify-center gap-0.5 rounded-btn border py-3 px-2 text-sm font-semibold transition disabled:opacity-40 ${
-            value === v ? 'border-brand bg-brand text-on-brand' : 'border-line bg-page hover:bg-soft'
+          className={`flex flex-col items-center justify-center gap-0.5 rounded-xl border py-3 px-2 text-sm font-semibold transition disabled:opacity-40 ${
+            value === v ? 'border-brand bg-brand text-on-brand' : 'border-line bg-soft/50 hover:bg-soft'
           }`}
         >
           <span className="flex items-center gap-1.5">
@@ -91,7 +115,7 @@ function TipSelector({ label, subtotalCents, value, onChange }: { label: string;
     <div>
       <div className="flex items-center justify-between mb-2">
         <span className="text-sm font-semibold">{label}</span>
-        <span className="text-sm text-muted">{formatMoney(fromCents(tipCents(subtotalCents, value)))}</span>
+        <span className="text-sm font-bold text-brand font-mono tabular-nums">{formatMoney(fromCents(tipCents(subtotalCents, value)))}</span>
       </div>
       <div className="grid grid-cols-5 gap-1.5">
         {[0, ...TIP_PRESETS].map((pct) => (
@@ -99,8 +123,8 @@ function TipSelector({ label, subtotalCents, value, onChange }: { label: string;
             key={pct}
             type="button"
             onClick={() => onChange({ percent: pct })}
-            className={`py-2.5 rounded-btn text-sm font-semibold border transition ${
-              !isCustom && value.percent === pct ? 'bg-brand text-on-brand border-brand' : 'bg-page border-line hover:bg-soft'
+            className={`py-2.5 rounded-xl text-sm font-semibold border transition ${
+              !isCustom && value.percent === pct ? 'bg-brand text-on-brand border-brand' : 'bg-soft/60 border-line hover:bg-soft'
             }`}
           >
             {pct === 0 ? 'None' : `${pct}%`}
@@ -109,7 +133,7 @@ function TipSelector({ label, subtotalCents, value, onChange }: { label: string;
         <button
           type="button"
           onClick={() => onChange({ percent: null, amount: parseAmount(custom, 0, { max: 500 }) })}
-          className={`py-2.5 rounded-btn text-sm font-semibold border transition ${isCustom ? 'bg-brand text-on-brand border-brand' : 'bg-page border-line hover:bg-soft'}`}
+          className={`py-2.5 rounded-xl text-sm font-semibold border transition ${isCustom ? 'bg-brand text-on-brand border-brand' : 'bg-soft/60 border-line hover:bg-soft'}`}
         >
           Other
         </button>
@@ -137,22 +161,22 @@ function TipSelector({ label, subtotalCents, value, onChange }: { label: string;
 function SummaryRows({ totals, promoCode }: { totals: OrderTotals; promoCode?: string | null }) {
   const row = (label: React.ReactNode, value: number, cls = '') => (
     <div className={`flex justify-between text-sm ${cls}`}>
-      <span>{label}</span>
-      <span>{formatMoney(value)}</span>
+      <span className="text-muted">{label}</span>
+      <span className="font-semibold font-mono tabular-nums">{formatMoney(value)}</span>
     </div>
   );
   return (
-    <div className="space-y-2">
+    <div className="space-y-2.5">
       {row('Subtotal', totals.subtotal)}
-      {totals.discount > 0 && row(`Discount${promoCode ? ` (${promoCode})` : ''}`, -totals.discount, 'text-emerald-700 font-medium')}
+      {totals.discount > 0 && row(`Discount${promoCode ? ` (${promoCode})` : ''}`, -totals.discount, 'text-brand font-semibold')}
       {totals.deliveryFee > 0 && row('Delivery fee', totals.deliveryFee)}
       {totals.serviceFee > 0 && row('Service fee', totals.serviceFee)}
       {totals.tax > 0 && row('Tax', totals.tax)}
       {totals.restaurantTip > 0 && row('Tip', totals.restaurantTip)}
       {totals.deliveryTip > 0 && row('Driver tip', totals.deliveryTip)}
-      <div className="flex justify-between font-extrabold text-lg pt-2 border-t border-line">
+      <div className="flex justify-between font-extrabold text-lg pt-3 border-t border-line">
         <span>Total</span>
-        <span>{formatMoney(totals.total)}</span>
+        <span className="text-brand font-mono tabular-nums">{formatMoney(totals.total)}</span>
       </div>
     </div>
   );
@@ -161,7 +185,7 @@ function SummaryRows({ totals, promoCode }: { totals: OrderTotals; promoCode?: s
 export const Cart: React.FC = () => {
   const navigate = useNavigate();
   const { cart, updateQuantity, removeFromCart, clearCart, promoCode, setPromoCode } = useCart();
-  const { profile, status, cardPaymentsAvailable, cashPaymentsAvailable, serverReachable } = useStore();
+  const { profile, catalog, status, cardPaymentsAvailable, cashPaymentsAvailable, serverReachable } = useStore();
   const { userProfile, loading: authLoading, updateContactInfo } = useAuth();
   const { openAuth } = useStorefrontUI();
   const pricing = useCartPricing();
@@ -169,7 +193,7 @@ export const Cart: React.FC = () => {
   // --- Order type -----------------------------------------------------------
   const pickupEnabled = profile?.isPickupEnabled !== false;
   const deliveryEnabled = profile?.isDeliveryEnabled !== false;
-  const [orderTypeChoice, setOrderType] = useState<OrderType>('pickup');
+  const [orderTypeChoice, setOrderType] = useState<OrderType>(() => (deliveryEnabled ? 'delivery' : 'pickup'));
   const orderType: OrderType = orderTypeChoice === 'delivery' ? (deliveryEnabled ? 'delivery' : 'pickup') : pickupEnabled ? 'pickup' : 'delivery';
 
   // --- When -----------------------------------------------------------------
@@ -200,14 +224,18 @@ export const Cart: React.FC = () => {
   const selectedDay = slotDays.find((d) => d.key === slotDayKey) || slotDays[0];
   const selectedSlot = selectedDay?.slots.find((s) => s.iso === slotIso) || selectedDay?.slots[0];
 
-  // --- Contact --------------------------------------------------------------
+  // --- Contact & Location Sheet ---------------------------------------------
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
+  const [addressLabel, setAddressLabel] = useState<'Home' | 'Office' | 'Other'>('Home');
+  const [locationSheetOpen, setLocationSheetOpen] = useState(false);
   const [deliveryLocation, setDeliveryLocation] = useState<GeoPoint | null>(null);
+  const [storeGeo, setStoreGeo] = useState<GeoPoint | null>(null);
   const [locatingGps, setLocatingGps] = useState(false);
   const [notes, setNotes] = useState('');
   const prefilled = useRef(false);
+
   useEffect(() => {
     if (!userProfile || prefilled.current) return;
     prefilled.current = true;
@@ -215,6 +243,19 @@ export const Cart: React.FC = () => {
     setPhone((v) => v || userProfile.phone || '');
     setAddress((v) => v || userProfile.savedAddresses?.[0] || '');
   }, [userProfile]);
+
+  useEffect(() => {
+    if (isValidGeoPoint(profile?.location)) {
+      setStoreGeo(profile!.location);
+      return;
+    }
+    if (!profile?.address) return;
+    const ctrl = new AbortController();
+    geocodeAddressNominatim(profile.address, ctrl.signal).then((pt) => {
+      if (!ctrl.signal.aborted && pt) setStoreGeo(pt);
+    });
+    return () => ctrl.abort();
+  }, [profile?.location, profile?.address]);
 
   useEffect(() => {
     if (orderType !== 'delivery' || address.trim().length < 6) return;
@@ -258,6 +299,21 @@ export const Cart: React.FC = () => {
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 10000 },
     );
   };
+
+  const handleMapSelectPoint = async (pt: GeoPoint) => {
+    const clean = sanitizeGeoPoint({ ...pt, updatedAt: Date.now() });
+    if (!clean) return;
+    setDeliveryLocation(clean);
+    const formatted = await reverseGeocodeNominatim(clean.lat, clean.lng);
+    if (formatted) setAddress(formatted);
+  };
+
+  const distanceBadge = useMemo(() => {
+    if (orderType === 'delivery' && storeGeo && deliveryLocation) {
+      return formatDistance(haversineDistanceKm(storeGeo, deliveryLocation));
+    }
+    return `~${prepMinutes(profile)} min`;
+  }, [orderType, storeGeo, deliveryLocation, profile]);
 
   // --- Payment --------------------------------------------------------------
   const [methodChoice, setMethod] = useState<PaymentMethod>('card');
@@ -538,11 +594,11 @@ export const Cart: React.FC = () => {
     return (
       <div className="text-center py-16 sm:py-24 max-w-md mx-auto">
         <div className="w-20 h-20 rounded-full bg-soft flex items-center justify-center mx-auto mb-6">
-          <ShoppingCart className="text-muted" size={32} />
+          <ShoppingCart className="text-brand" size={32} />
         </div>
         <h1 className="font-display text-2xl sm:text-3xl font-extrabold mb-2">Your cart is empty</h1>
         <p className="text-muted mb-8">Add something delicious from the menu.</p>
-        <Link to="/" className="inline-block bg-brand text-on-brand px-8 py-3.5 rounded-btn font-semibold">
+        <Link to="/" className="inline-block bg-brand text-on-brand px-8 py-3.5 rounded-2xl font-bold shadow-ios">
           Browse the menu
         </Link>
       </div>
@@ -552,8 +608,8 @@ export const Cart: React.FC = () => {
   const ctaLabel = !userProfile
     ? 'Sign in to order'
     : paymentMethod === 'cash'
-      ? `Place order · ${formatMoney(totals.total)}`
-      : `Continue to payment · ${formatMoney(totals.total)}`;
+      ? `Place Order (${formatMoney(totals.total)})`
+      : `Place Order (${formatMoney(totals.total)})`;
   const ctaDisabled = placing || authLoading || (!!userProfile && blockers.length > 0);
 
   const cta = (
@@ -561,80 +617,145 @@ export const Cart: React.FC = () => {
       type="button"
       onClick={() => placeOrder()}
       disabled={ctaDisabled}
-      className="w-full bg-brand text-on-brand py-4 rounded-btn font-bold text-base flex items-center justify-center gap-2 shadow-ios-lg disabled:opacity-50 active:scale-[0.99] transition"
+      className="w-full bg-brand text-on-brand py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2 shadow-ios-lg disabled:opacity-50 active:scale-[0.99] transition"
     >
       {placing && <Spinner size={18} />}
       {ctaLabel}
     </button>
   );
 
+  const totalCount = pricing.itemCount || cart.reduce((s, i) => s + i.quantity, 0);
+
   return (
-    <div className="max-w-5xl mx-auto">
-      <div className="flex items-end justify-between mb-4 sm:mb-6">
-        <h1 className="font-display text-2xl sm:text-4xl font-extrabold">Checkout</h1>
-        <Link to="/" className="text-sm font-semibold text-brand">
+    <div className="max-w-5xl mx-auto space-y-4 sm:space-y-6">
+      <div className="hidden md:flex items-end justify-between">
+        <h1 className="font-display text-2xl sm:text-3xl font-extrabold">My Cart</h1>
+        <Link to="/" className="text-sm font-bold text-brand hover:underline">
           + Add items
         </Link>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-4 lg:gap-8 items-start">
         <div className="space-y-4">
-          {/* Items */}
-          <Card title={`Your order (${pricing.itemCount || cart.reduce((s, i) => s + i.quantity, 0)})`}>
+          {/* Kupa Green Delivery / Pickup Banner Card (matches My Cart screen) */}
+          <button
+            type="button"
+            onClick={() => {
+              if (orderType === 'delivery') setLocationSheetOpen(true);
+              else document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="w-full text-left rounded-2xl bg-brand text-on-brand p-4 sm:p-5 shadow-ios transition hover:opacity-95 active:scale-[0.99]"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 space-y-1">
+                <div className="font-display font-extrabold text-base sm:text-lg leading-tight">
+                  {orderType === 'delivery' ? `Delivery to ${addressLabel}` : 'Pickup at Store'}
+                </div>
+                <p className="text-xs sm:text-sm opacity-85 truncate">
+                  {orderType === 'delivery' ? address.trim() || 'Tap to set your delivery address & pin' : profile?.address || profile?.name}
+                </p>
+              </div>
+              <ChevronRight size={20} className="shrink-0 opacity-90 mt-0.5" />
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-white/20 border border-white/25 text-xs font-semibold font-mono tabular-nums">
+                {distanceBadge}
+              </span>
+              {when === 'later' && selectedSlot && (
+                <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-white/20 border border-white/25 text-xs font-semibold">
+                  {selectedDay?.label} · {selectedSlot.timeLabel}
+                </span>
+              )}
+            </div>
+          </button>
+
+          {/* Kupa "Your Order (N)" List with Item Thumbnails, Circle Steppers & Green Prices */}
+          <Card
+            title={`Your Order (${totalCount})`}
+            action={
+              <Link to="/#menu" className="text-xs font-bold text-brand hover:underline">
+                + Add more
+              </Link>
+            }
+          >
             <ul className="divide-y divide-line">
               {cart.map((line, index) => {
                 const priced = pricing.lines[index];
                 const unavailable = pricing.ready && priced && priced.status !== 'ok';
+                const catalogItem = catalog.items.get(line.itemId);
+                const imageUrl = catalogItem?.imageUrl;
+                const linePrice =
+                  pricing.ready && priced?.status === 'ok' ? formatMoney(fromCents(priced.lineCents)) : formatMoney(line.price * line.quantity);
                 const groups = new Map<string, string[]>();
                 for (const m of line.selectedModifiers || []) {
                   const key = m.groupName || 'Options';
                   groups.set(key, [...(groups.get(key) || []), m.name]);
                 }
                 return (
-                  <li key={line.cartItemId} className={`py-3 first:pt-0 last:pb-0 flex gap-3 ${unavailable ? 'opacity-90' : ''}`}>
+                  <li key={line.cartItemId} className={`py-3.5 first:pt-0 last:pb-0 flex items-center gap-3.5 ${unavailable ? 'opacity-85' : ''}`}>
+                    {/* Item Thumbnail Photo (Kupa My Cart style) */}
+                    <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-soft overflow-hidden shrink-0 flex items-center justify-center">
+                      {imageUrl ? (
+                        <img src={imageUrl} alt={line.name} className="w-full h-full object-cover" loading="lazy" />
+                      ) : (
+                        <UtensilsCrossed size={20} className="text-muted opacity-45" />
+                      )}
+                    </div>
+
                     <div className="min-w-0 flex-1">
-                      <div className="flex justify-between gap-3">
-                        <h3 className={`font-semibold text-[15px] ${unavailable ? 'line-through text-muted' : ''}`}>{line.name}</h3>
-                        <span className="font-semibold text-sm whitespace-nowrap">
-                          {pricing.ready && priced?.status === 'ok' ? formatMoney(fromCents(priced.lineCents)) : formatMoney(line.price * line.quantity)}
-                        </span>
+                      <div className="flex items-start justify-between gap-2">
+                        <h3 className={`font-bold text-sm sm:text-[15px] text-ink truncate ${unavailable ? 'line-through text-muted' : ''}`}>
+                          {line.name}
+                        </h3>
+                        <button
+                          type="button"
+                          onClick={() => removeFromCart(line.cartItemId)}
+                          className="p-1 text-muted hover:text-red-600 transition shrink-0"
+                          aria-label={`Remove ${line.name}`}
+                          disabled={!!payment}
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       </div>
+
                       {[...groups.entries()].map(([g, names]) => (
-                        <p key={g} className="text-xs text-muted">
+                        <p key={g} className="text-xs text-muted truncate">
                           {g}: {names.join(', ')}
                         </p>
                       ))}
-                      {line.prepNotes && <p className="text-xs text-muted italic">“{line.prepNotes}”</p>}
+                      {line.prepNotes && <p className="text-xs text-muted italic truncate">“{line.prepNotes}”</p>}
                       {unavailable && (
                         <p className="mt-1 text-xs font-semibold text-red-600 flex items-center gap-1">
                           <AlertCircle size={13} /> {priced.errors[0]}
                         </p>
                       )}
-                      <div className="mt-2 flex items-center gap-3">
+
+                      {/* Kupa Inline Circle Stepper + Emerald Green Price */}
+                      <div className="mt-2.5 flex items-center gap-4">
                         {!unavailable && (
-                          <div className="flex items-center rounded-full border border-line">
+                          <div className="inline-flex items-center gap-2.5">
                             <button
+                              type="button"
                               onClick={() => updateQuantity(line.cartItemId, line.quantity - 1)}
-                              className="p-2"
+                              className="w-7 h-7 rounded-full bg-soft text-ink flex items-center justify-center transition active:scale-90"
                               aria-label={`Decrease ${line.name}`}
                               disabled={!!payment}
                             >
-                              <Minus size={14} />
+                              <Minus size={13} strokeWidth={2.5} />
                             </button>
-                            <span className="w-6 text-center text-sm font-bold">{line.quantity}</span>
+                            <span className="min-w-4 text-center text-sm font-bold font-mono tabular-nums">{line.quantity}</span>
                             <button
+                              type="button"
                               onClick={() => updateQuantity(line.cartItemId, line.quantity + 1)}
-                              className="p-2"
+                              className="w-7 h-7 rounded-full bg-brand text-on-brand flex items-center justify-center transition active:scale-90"
                               aria-label={`Increase ${line.name}`}
                               disabled={!!payment}
                             >
-                              <Plus size={14} />
+                              <Plus size={13} strokeWidth={2.5} />
                             </button>
                           </div>
                         )}
-                        <button onClick={() => removeFromCart(line.cartItemId)} className="text-xs font-semibold text-muted hover:text-red-600 flex items-center gap-1" disabled={!!payment}>
-                          <Trash2 size={14} /> Remove
-                        </button>
+                        <span className="font-bold text-sm text-brand font-mono tabular-nums">{linePrice}</span>
                       </div>
                     </div>
                   </li>
@@ -662,7 +783,7 @@ export const Cart: React.FC = () => {
               />
 
               {orderType === 'delivery' && totals.freeDeliveryRemaining !== null && totals.freeDeliveryRemaining > 0 && (
-                <p className="text-xs font-semibold text-brand bg-brand/5 rounded-btn px-3 py-2">
+                <p className="text-xs font-semibold text-brand bg-brand/10 rounded-xl px-3.5 py-2.5">
                   Add {formatMoney(totals.freeDeliveryRemaining)} more for free delivery.
                 </p>
               )}
@@ -697,7 +818,7 @@ export const Cart: React.FC = () => {
                             setSlotIso('');
                           }}
                           className={`shrink-0 px-4 py-2 rounded-chip text-sm font-semibold border ${
-                            selectedDay?.key === d.key ? 'bg-brand text-on-brand border-brand' : 'bg-page border-line'
+                            selectedDay?.key === d.key ? 'bg-brand text-on-brand border-brand' : 'bg-soft/60 border-line'
                           }`}
                         >
                           {d.label}
@@ -718,8 +839,22 @@ export const Cart: React.FC = () => {
             </div>
           </Card>
 
-          {/* Contact */}
-          <Card title="Your details" id="contact">
+          {/* Contact & Address */}
+          <Card
+            title="Your details"
+            id="contact"
+            action={
+              orderType === 'delivery' ? (
+                <button
+                  type="button"
+                  onClick={() => setLocationSheetOpen(true)}
+                  className="text-xs font-bold text-brand bg-brand/10 px-3 py-1.5 rounded-full hover:opacity-85 transition"
+                >
+                  Change on map
+                </button>
+              ) : null
+            }
+          >
             <div className="space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
@@ -742,7 +877,7 @@ export const Cart: React.FC = () => {
                 </div>
               </div>
               {orderType === 'delivery' && (
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   <div className="flex gap-2">
                     <input
                       className={inputCls}
@@ -757,18 +892,34 @@ export const Cart: React.FC = () => {
                       type="button"
                       onClick={useCurrentGpsLocation}
                       disabled={locatingGps}
-                      className="shrink-0 px-3.5 rounded-btn border border-line bg-page hover:bg-soft text-xs font-semibold flex items-center gap-1.5 transition disabled:opacity-50"
+                      className="shrink-0 px-3.5 rounded-xl border border-line bg-soft/70 hover:bg-soft text-xs font-semibold flex items-center gap-1.5 transition disabled:opacity-50"
                       title="Use current GPS location"
                     >
                       {locatingGps ? <Spinner size={14} /> : <LocateFixed size={15} className="text-brand" />}
                       <span className="hidden sm:inline">Use GPS</span>
                     </button>
                   </div>
-                  {deliveryLocation && (
-                    <p className="text-[11px] text-emerald-700 font-medium font-mono tabular-nums">
-                      GPS pin ready ({deliveryLocation.lat.toFixed(4)}, {deliveryLocation.lng.toFixed(4)})
-                    </p>
-                  )}
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      {(['Home', 'Office', 'Other'] as const).map((tag) => (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => setAddressLabel(tag)}
+                          className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
+                            addressLabel === tag ? 'bg-brand/10 text-brand border-brand/30' : 'bg-soft/60 text-muted border-line'
+                          }`}
+                        >
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                    {deliveryLocation && (
+                      <span className="text-[11px] text-brand font-semibold font-mono tabular-nums">
+                        GPS pin ready ({deliveryLocation.lat.toFixed(4)}, {deliveryLocation.lng.toFixed(4)})
+                      </span>
+                    )}
+                  </div>
                   {attempted && contactErrors.address && <p className="text-xs text-red-600 mt-1">{contactErrors.address}</p>}
                 </div>
               )}
@@ -797,7 +948,7 @@ export const Cart: React.FC = () => {
                 />
               ) : paymentMethod ? (
                 <p className="text-sm flex items-center gap-2">
-                  {paymentMethod === 'card' ? <CreditCard size={16} /> : <Banknote size={16} />}
+                  {paymentMethod === 'card' ? <CreditCard size={16} className="text-brand" /> : <Banknote size={16} className="text-brand" />}
                   {paymentMethod === 'card' ? 'Pay securely online with card, Apple Pay or Google Pay.' : `Pay with cash ${orderType === 'delivery' ? 'to your driver' : 'when you pick up'}.`}
                 </p>
               ) : (
@@ -805,7 +956,7 @@ export const Cart: React.FC = () => {
               )}
 
               {paymentMethod === 'cash' && (
-                <p className="text-xs text-muted bg-soft rounded-btn px-3 py-2">
+                <p className="text-xs text-muted bg-soft rounded-xl px-3.5 py-2.5">
                   Please have {formatMoney(totals.total)} ready. You can tip in person.
                 </p>
               )}
@@ -820,16 +971,16 @@ export const Cart: React.FC = () => {
               {/* Promo */}
               <div className="pt-1">
                 {promoCode ? (
-                  <div className={`flex items-start justify-between gap-3 rounded-btn border px-3 py-2.5 ${promoProblem ? 'border-amber-300 bg-amber-50' : 'border-emerald-300 bg-emerald-50'}`}>
+                  <div className={`flex items-start justify-between gap-3 rounded-xl border px-3.5 py-2.5 ${promoProblem ? 'border-amber-300 bg-amber-50' : 'border-brand/30 bg-brand/5'}`}>
                     <div className="text-sm">
-                      <div className="font-bold flex items-center gap-1.5">
-                        <Tag size={14} /> {promoCode}
+                      <div className="font-bold flex items-center gap-1.5 text-ink">
+                        <Tag size={14} className="text-brand" /> {promoCode}
                       </div>
-                      <div className={promoProblem ? 'text-amber-800' : 'text-emerald-800'}>
+                      <div className={promoProblem ? 'text-amber-800 text-xs' : 'text-brand font-semibold text-xs'}>
                         {!userProfile ? 'Sign in to use this code.' : !promoLoaded ? 'Checking…' : promoProblem || `You save ${formatMoney(fromCents(discountCents))}`}
                       </div>
                     </div>
-                    <button onClick={() => setPromoCode(null)} className="p-1 text-muted" aria-label="Remove promo code">
+                    <button onClick={() => setPromoCode(null)} className="p-1 text-muted hover:text-ink" aria-label="Remove promo code">
                       <X size={16} />
                     </button>
                   </div>
@@ -856,7 +1007,7 @@ export const Cart: React.FC = () => {
                       aria-label="Promo code"
                       maxLength={50}
                     />
-                    <button type="submit" disabled={!promoInput.trim()} className="px-4 rounded-btn bg-soft font-semibold text-sm disabled:opacity-50">
+                    <button type="submit" disabled={!promoInput.trim()} className="px-4 rounded-xl bg-soft font-semibold text-sm disabled:opacity-50">
                       Apply
                     </button>
                   </form>
@@ -892,11 +1043,109 @@ export const Cart: React.FC = () => {
         </aside>
       </div>
 
-      {/* Mobile sticky checkout bar */}
-      <div className="lg:hidden fixed inset-x-0 bottom-0 z-40 bg-card/95 backdrop-blur-xl border-t border-line px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      {/* Mobile sticky checkout bar positioned cleanly above the BottomNav */}
+      <div className="lg:hidden fixed inset-x-0 bottom-[calc(58px+env(safe-area-inset-bottom))] z-30 bg-card/95 backdrop-blur-xl border-t border-line px-4 py-3">
         {blockers.length > 0 && userProfile && <p className="text-[11px] font-semibold text-red-700 mb-2 text-center">{blockers[0]}</p>}
         {cta}
       </div>
+
+      {/* Kupa "Location" Sheet with Interactive OpenStreetMap, Detail Address & Save Address As tags */}
+      <Sheet
+        open={locationSheetOpen}
+        onClose={() => setLocationSheetOpen(false)}
+        title="Location"
+        size="md"
+        footer={
+          <button
+            type="button"
+            onClick={() => setLocationSheetOpen(false)}
+            className="w-full bg-brand text-on-brand py-4 rounded-2xl font-bold text-base shadow-ios-lg transition active:scale-[0.99]"
+          >
+            Confirmation
+          </button>
+        }
+      >
+        <div className="p-4 sm:p-5 space-y-4">
+          <Suspense
+            fallback={
+              <div className="h-56 rounded-2xl bg-soft flex items-center justify-center text-muted text-sm">
+                <Spinner size={18} />
+              </div>
+            }
+          >
+            <OrderTrackingMap
+              storePoint={storeGeo}
+              storeLabel={profile?.name || 'Restaurant'}
+              destinationPoint={deliveryLocation}
+              destinationLabel={address.trim() || `Delivery (${addressLabel})`}
+              onSelectPoint={handleMapSelectPoint}
+              editablePin="destination"
+              heightClassName="h-56 sm:h-64"
+            />
+          </Suspense>
+
+          <div className="space-y-3 pt-1">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-sm text-ink">Detail Address</h3>
+              <button
+                type="button"
+                onClick={useCurrentGpsLocation}
+                disabled={locatingGps}
+                className="text-xs font-bold text-brand inline-flex items-center gap-1 hover:underline disabled:opacity-50"
+              >
+                {locatingGps ? <Spinner size={13} /> : <LocateFixed size={14} />}
+                Use current GPS
+              </button>
+            </div>
+
+            <div className="flex items-start gap-3 rounded-2xl border border-line bg-soft/40 p-3.5">
+              <span className="w-9 h-9 rounded-full bg-brand/10 text-brand flex items-center justify-center shrink-0 mt-0.5">
+                <MapPin size={17} />
+              </span>
+              <div className="min-w-0 flex-1 space-y-2">
+                <input
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="Enter street address, apartment, city"
+                  className="w-full bg-transparent text-sm font-semibold text-ink placeholder:text-muted outline-none"
+                />
+                {userProfile?.savedAddresses && userProfile.savedAddresses.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {userProfile.savedAddresses.slice(0, 3).map((saved) => (
+                      <button
+                        key={saved}
+                        type="button"
+                        onClick={() => setAddress(saved)}
+                        className="px-2.5 py-1 rounded-full bg-card border border-line text-[11px] font-medium text-muted hover:text-ink truncate max-w-[220px]"
+                      >
+                        {saved}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <h3 className="font-bold text-sm text-ink">Save Address As</h3>
+            <div className="flex items-center gap-2">
+              {(['Home', 'Office', 'Other'] as const).map((tag) => (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() => setAddressLabel(tag)}
+                  className={`px-4 py-2 rounded-full text-xs font-bold border transition ${
+                    addressLabel === tag ? 'bg-brand/10 text-brand border-brand/30' : 'bg-soft/60 text-muted border-line hover:text-ink'
+                  }`}
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Sheet>
 
       {payment && (
         <Suspense fallback={null}>

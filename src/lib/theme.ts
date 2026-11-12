@@ -19,8 +19,8 @@ export interface ThemePreset {
 }
 
 export const THEME_PRESETS: ThemePreset[] = [
-  { id: 'classic', name: 'Classic', description: 'Warm neutrals with deep forest green', brandColor: '#1A211A', accentColor: '#EADDC5', mode: 'warm', font: 'geist', corners: 'rounded' },
-  { id: 'fresh', name: 'Fresh', description: 'Bright, clean and healthy', brandColor: '#15803D', accentColor: '#FDE68A', mode: 'light', font: 'poppins', corners: 'pill' },
+  { id: 'classic', name: 'Kupa Fresh', description: 'Crisp white surfaces with botanical emerald green', brandColor: '#287350', accentColor: '#EBF5F0', mode: 'light', font: 'geist', corners: 'rounded' },
+  { id: 'fresh', name: 'Forest Warm', description: 'Warm neutrals with deep forest green', brandColor: '#1F5E41', accentColor: '#EADDC5', mode: 'warm', font: 'poppins', corners: 'pill' },
   { id: 'street', name: 'Street Food', description: 'Bold red, loud headlines', brandColor: '#DC2626', accentColor: '#FACC15', mode: 'light', font: 'oswald', corners: 'rounded' },
   { id: 'midnight', name: 'Midnight', description: 'Dark mode with amber glow', brandColor: '#F59E0B', accentColor: '#FDE68A', mode: 'dark', font: 'grotesk', corners: 'rounded' },
   { id: 'coastal', name: 'Coastal', description: 'Calm teal, airy layout', brandColor: '#0E7490', accentColor: '#A5F3FC', mode: 'light', font: 'dm', corners: 'rounded' },
@@ -61,14 +61,14 @@ interface Surface {
 }
 
 export const SURFACES: Record<SurfaceMode, Surface> = {
-  light: { page: '#F6F6F7', card: '#FFFFFF', ink: '#111315', muted: '#6B7076', line: '#E8E8EB', soft: '#F1F1F3' },
-  warm: { page: '#FBF9F6', card: '#FFFFFF', ink: '#141A14', muted: '#6B7D6B', line: '#EFE7DA', soft: '#F4EEE4' },
+  light: { page: '#FFFFFF', card: '#FFFFFF', ink: '#121615', muted: '#7A8280', line: '#EDF0EE', soft: '#F6F7F8' },
+  warm: { page: '#FCFBF9', card: '#FFFFFF', ink: '#141A16', muted: '#6E7A72', line: '#ECEAE4', soft: '#F4F3EF' },
   dark: { page: '#0D0F0E', card: '#171A18', ink: '#F4F2ED', muted: '#9AA29B', line: '#2A302C', soft: '#202622' },
 };
 
 const CORNERS: Record<CornerStyle, { card: string; btn: string; chip: string }> = {
-  sharp: { card: '6px', btn: '8px', chip: '8px' },
-  rounded: { card: '16px', btn: '14px', chip: '9999px' },
+  sharp: { card: '8px', btn: '8px', chip: '8px' },
+  rounded: { card: '18px', btn: '14px', chip: '9999px' },
   pill: { card: '24px', btn: '9999px', chip: '9999px' },
 };
 
@@ -80,7 +80,7 @@ export const THEME_DEFAULTS = {
   tagline: '',
   showSearch: true,
   showFeatured: true,
-  featuredTitle: 'Popular near you',
+  featuredTitle: 'Top of Week',
   showRatings: true,
   showPrepTime: true,
   showCalories: true,
@@ -90,6 +90,11 @@ export const THEME_DEFAULTS = {
   announcementEnabled: false,
   announcementText: '',
   announcementTone: 'brand' as AnnouncementTone,
+  showPromoCard: true,
+  promoTitle: '',
+  promoSubtitle: '',
+  promoBannerUrl: '',
+  promoOverlay: 45,
 };
 
 export type ResolvedTheme = typeof THEME_DEFAULTS & {
@@ -127,6 +132,7 @@ export function resolveTheme(theme?: StorefrontTheme | null): ResolvedTheme {
     font: FONT_PAIRINGS.some((f) => f.id === t.font) ? (t.font as string) : preset.font,
     corners: t.corners && CORNERS[t.corners] ? t.corners : preset.corners,
     heroOverlay: Math.min(90, Math.max(0, Number(t.heroOverlay ?? THEME_DEFAULTS.heroOverlay))),
+    promoOverlay: Math.min(90, Math.max(0, Number(t.promoOverlay ?? THEME_DEFAULTS.promoOverlay))),
   };
 }
 
