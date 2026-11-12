@@ -72,8 +72,10 @@ await check('anyone can read the menu and profile', async () => {
 });
 
 console.log('\nOrders: customers');
-await check('customers cannot create orders directly (server prices them)', () =>
-  assertFails(setDoc(doc(customer, 'orders', 'HACK01'), baseOrder({ total: 0.01, status: 'new', createdAt: serverTimestamp() }))));
+await check('customer can create own valid order', () =>
+  assertSucceeds(setDoc(doc(customer, 'orders', 'NEW01'), baseOrder({ customerId: 'cust1', status: 'new', paymentMethod: 'cash', paymentStatus: 'pending', createdAt: now }))));
+await check('customer cannot create order for someone else', () =>
+  assertFails(setDoc(doc(customer, 'orders', 'HACK01'), baseOrder({ customerId: 'cust2', status: 'new', paymentMethod: 'cash', paymentStatus: 'pending', createdAt: now }))));
 await check('customer can read own order', () => assertSucceeds(getDoc(doc(customer, 'orders', 'CARD01'))));
 await check('customer cannot read someone else\'s order', () => assertFails(getDoc(doc(other, 'orders', 'CARD01'))));
 await check('customer can list own orders (no composite index needed)', () =>

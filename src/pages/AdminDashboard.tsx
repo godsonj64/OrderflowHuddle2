@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
-import { Timestamp, collection, onSnapshot, orderBy, query, where } from 'firebase/firestore';
+import { Timestamp, collection, doc, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import { AlertTriangle, Banknote, CalendarClock, MapPin, Phone, RefreshCw, Search, Undo2, XCircle } from 'lucide-react';
 import { db } from '../firebase';
@@ -257,8 +257,19 @@ export const AdminDashboard: React.FC = () => {
     if (!cancelOrder) return;
     setWorking(true);
     try {
-      const res = await api.cancel(cancelOrder.id, cancelReason.trim() || undefined);
-      toast.success(res.refunded ? `Cancelled and refunded #${orderCode(cancelOrder)}` : `Cancelled #${orderCode(cancelOrder)}`);
+      try {
+        const res = await api.cancel(cancelOrder.id, cancelReason.trim() || undefined);
+        toast.success(res.refunded ? `Cancelled and refunded #${orderCode(cancelOrder)}` : `Cancelled #${orderCode(cancelOrder)}`);
+      } catch {
+        // Direct Firestore fallback for staff cancellation
+        await updateDoc(doc(db, 'orders', cancelOrder.id), {
+          status: 'cancelled',
+          cancelledBy: 'staff',
+          cancelReason: cancelReason.trim() || 'Cancelled by staff',
+          updatedAt: serverTimestamp(),
+        });
+        toast.success(`Cancelled #${orderCode(cancelOrder)}`);
+      }
       setCancelOrder(null);
       setCancelReason('');
     } catch (err) {

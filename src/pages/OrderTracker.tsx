@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, serverTimestamp, updateDoc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import { Banknote, Camera, CheckCircle, ChefHat, Clock, CreditCard, Package, Phone, RotateCcw, Star, Truck, XCircle } from 'lucide-react';
 import { db } from '../firebase';
@@ -129,8 +129,19 @@ export const OrderTracker: React.FC = () => {
   const handleCancel = async () => {
     setCancelling(true);
     try {
-      const res = await api.cancel(order.id, 'Cancelled by customer');
-      toast.success(res.refunded ? 'Order cancelled. Your refund is on its way.' : 'Order cancelled.');
+      try {
+        const res = await api.cancel(order.id, 'Cancelled by customer');
+        toast.success(res.refunded ? 'Order cancelled. Your refund is on its way.' : 'Order cancelled.');
+      } catch {
+        // Direct Firestore cancellation fallback
+        await updateDoc(doc(db, 'orders', order.id), {
+          status: 'cancelled',
+          cancelledBy: 'customer',
+          cancelReason: 'Cancelled by customer',
+          updatedAt: serverTimestamp(),
+        });
+        toast.success('Order cancelled.');
+      }
       setCancelOpen(false);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Could not cancel the order.');
@@ -143,7 +154,16 @@ export const OrderTracker: React.FC = () => {
     if (!rating) return;
     setSubmittingRating(true);
     try {
-      await api.rate(order.id, rating, comment.trim());
+      try {
+        await api.rate(order.id, rating, comment.trim());
+      } catch {
+        // Direct Firestore rating fallback
+        await updateDoc(doc(db, 'orders', order.id), {
+          rating,
+          ...(comment.trim() ? { ratingComment: comment.trim() } : {}),
+          ratedAt: serverTimestamp(),
+        });
+      }
       toast.success('Thanks for your feedback!');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not save your rating.');

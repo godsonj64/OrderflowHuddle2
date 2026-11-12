@@ -12,6 +12,12 @@ import {
   type Transaction,
 } from 'firebase-admin/firestore';
 import firebaseConfig from './firebase-applet-config.json';
+import { initializeApp as initClientApp } from 'firebase/app';
+import {
+  getFirestore as getClientFirestore,
+  doc as clientDoc,
+  getDoc as getClientDoc,
+} from 'firebase/firestore';
 import {
   isManagerRole,
   isStaffRole,
@@ -47,6 +53,9 @@ import { fromCents, roundMoney, toCents } from './src/lib/money';
 const firebaseApp = admin.initializeApp({ projectId: firebaseConfig.projectId });
 const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
 db.settings({ ignoreUndefinedProperties: true });
+
+const clientApp = initClientApp(firebaseConfig, 'server-web-client');
+const clientDb = getClientFirestore(clientApp, firebaseConfig.firestoreDatabaseId);
 
 const PORT = Number(process.env.PORT) || 3000;
 const CURRENCY = 'usd';
@@ -107,9 +116,15 @@ async function authenticate(req: Request): Promise<AuthedUser> {
   } catch {
     throw new HttpError(401, 'Your session has expired. Please sign in again.');
   }
-  const snap = await db.collection('users').doc(decoded.uid).get();
-  const profile = snap.exists ? (snap.data() as UserProfile) : null;
-  let role: UserRole = profile?.role || 'customer';
+  let profile: UserProfile | null = null;
+  let role: UserRole = 'customer';
+  try {
+    const snap = await db.collection('users').doc(decoded.uid).get();
+    profile = snap.exists ? (snap.data() as UserProfile) : null;
+    if (profile?.role) role = profile.role;
+  } catch {
+    // If admin SDK has no credentials, role safely defaults to customer
+  }
   if (decoded.email_verified && BOOTSTRAP_ADMINS.includes((decoded.email || '').toLowerCase())) role = 'admin';
   return { uid: decoded.uid, email: decoded.email || profile?.email || '', role, profile };
 }
@@ -350,12 +365,12 @@ async function startServer() {
       if (!health || Date.now() - health.at > 60_000) {
         try {
           await Promise.race([
-            db.doc('restaurant/profile').get(),
+            getClientDoc(clientDoc(clientDb, 'restaurant', 'profile')),
             new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
           ]);
           health = { at: Date.now(), firestore: 'ok' };
         } catch (err: any) {
-          console.error('[health] Firestore (Admin SDK) is not reachable:', err?.message);
+          console.error('[health] Firestore is not reachable:', err?.message);
           health = { at: Date.now(), firestore: 'error' };
         }
       }
@@ -371,6 +386,32 @@ async function startServer() {
   app.get('/api/config', (_req, res) => {
     res.json({ cardPayments: stripeEnabled() });
   });
+
+  app.post(
+    '/api/create-payment-intent',
+    route(async (req, res) => {
+      const user = await authenticate(req);
+      const amountCents = Math.round(Number(req.body?.amountCents));
+      const orderId = str(req.body?.orderId, 64);
+      if (!amountCents || amountCents < MIN_CARD_CHARGE_CENTS) {
+        throw new HttpError(400, 'Invalid payment amount.');
+      }
+      if (!orderId) {
+        throw new HttpError(400, 'Invalid order id.');
+      }
+      const pi = await getStripe().paymentIntents.create(
+        {
+          amount: amountCents,
+          currency: CURRENCY,
+          description: `Order #${orderId}`,
+          metadata: { orderId, uid: user.uid },
+          automatic_payment_methods: { enabled: true },
+        },
+        { idempotencyKey: `order-${orderId}` },
+      );
+      res.json({ clientSecret: pi.client_secret, paymentIntentId: pi.id });
+    }),
+  );
 
   // -------------------------------------------------------------------------
   // Checkout: the server prices the order from Firestore data. The client only

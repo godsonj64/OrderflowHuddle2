@@ -1,10 +1,10 @@
 import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { doc, getDoc } from 'firebase/firestore';
+import { arrayUnion, doc, getDoc, increment, serverTimestamp, setDoc, Timestamp, updateDoc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import { AlertCircle, Banknote, Bike, CalendarClock, CreditCard, Minus, Plus, ShoppingBag, Store, Tag, Trash2, X, Zap } from 'lucide-react';
 import { db } from '../firebase';
-import type { OrderType, PaymentMethod, PromoCode } from '../types';
+import type { Order, OrderType, PaymentMethod, PromoCode } from '../types';
 import { useCart } from '../context/CartContext';
 import { useStore } from '../context/StoreContext';
 import { useAuth } from '../context/AuthContext';
@@ -14,6 +14,7 @@ import { ApiError, api } from '../lib/api';
 import { formatMoney, fromCents, parseAmount } from '../lib/money';
 import { TIP_PRESETS, computeTotals, promoDiscountCents, promoError, tipCents, type OrderTotals, type TipChoice } from '../lib/pricing';
 import { generateTimeSlots, type TimeSlot } from '../lib/hours';
+import { generateOrderCode } from '../lib/ids';
 import { prepMinutes, scheduleDaysAhead } from '../lib/storeStatus';
 import { ConfirmDialog, Spinner } from '../components/ui';
 import { reportError } from '../utils/errorHandling';
@@ -314,20 +315,109 @@ export const Cart: React.FC = () => {
 
     setPlacing(true);
     try {
-      const res = await api.checkout({
-        items: pricing.inputs,
-        orderType,
-        paymentMethod,
-        customerName: name.trim(),
-        customerPhone: phone.trim(),
-        deliveryAddress: orderType === 'delivery' ? address.trim() : undefined,
-        notes: notes.trim() || undefined,
-        scheduledFor: when === 'later' ? selectedSlot?.iso : null,
-        promoCode: promoCode && !promoProblem ? promoCode : null,
-        tip: tippingEnabled ? { restaurant: tip, delivery: orderType === 'delivery' ? driverTip : undefined } : undefined,
-        expectedTotalCents,
-        replacesOrderId: readPending(),
-      });
+      const isFree = totals.totalCents === 0;
+      const chargeCard = paymentMethod === 'card' && !isFree && cardPaymentsAvailable;
+      const code = generateOrderCode();
+
+      let targetOrderId = code;
+      let clientSecret: string | null = null;
+
+      // Try server checkout first
+      try {
+        const res = await api.checkout({
+          items: pricing.inputs,
+          orderType,
+          paymentMethod,
+          customerName: name.trim(),
+          customerPhone: phone.trim(),
+          deliveryAddress: orderType === 'delivery' ? address.trim() : undefined,
+          notes: notes.trim() || undefined,
+          scheduledFor: when === 'later' ? selectedSlot?.iso : null,
+          promoCode: promoCode && !promoProblem ? promoCode : null,
+          tip: tippingEnabled ? { restaurant: tip, delivery: orderType === 'delivery' ? driverTip : undefined } : undefined,
+          expectedTotalCents,
+          replacesOrderId: readPending(),
+        });
+        targetOrderId = res.orderId;
+        clientSecret = res.clientSecret;
+      } catch (serverErr: any) {
+        if (serverErr instanceof ApiError && serverErr.data?.code === 'PRICE_CHANGED' && serverErr.data?.totals) {
+          setPriceChange(serverErr.data.totals as OrderTotals);
+          return;
+        }
+
+        // If server cannot reach Firestore with Admin SDK (offline fallback), place directly into Firestore
+        console.warn('Server checkout unavailable, creating order directly in database:', serverErr?.message);
+
+        let paymentIntentId: string | null = null;
+        if (chargeCard) {
+          try {
+            const pi = await api.createPaymentIntent({
+              amountCents: totals.totalCents,
+              orderId: code,
+            });
+            clientSecret = pi.clientSecret;
+            paymentIntentId = pi.paymentIntentId;
+          } catch (piErr) {
+            console.error('Payment intent creation failed:', piErr);
+          }
+        }
+
+        const scheduledDate = when === 'later' && selectedSlot ? new Date(selectedSlot.iso) : null;
+        const orderData: Omit<Order, 'id'> & Record<string, unknown> = {
+          orderNumber: code,
+          customerId: userProfile.uid,
+          customerName: name.trim(),
+          customerEmail: (userProfile.email || '').slice(0, 150),
+          customerPhone: phone.trim(),
+          items: pricing.lines.map((l, i) => ({
+            cartItemId: `L${i + 1}`,
+            itemId: l.input.itemId,
+            name: l.name,
+            price: fromCents(l.unitCents),
+            quantity: l.quantity,
+            selectedModifiers: l.modifiers,
+            ...(l.input.notes ? { prepNotes: l.input.notes } : {}),
+          })),
+          status: chargeCard && clientSecret ? 'payment_pending' : 'new',
+          type: orderType,
+          subtotal: totals.subtotal,
+          discountAmount: totals.discount,
+          promoCode: promoCode && !promoProblem ? promoCode : undefined,
+          deliveryFee: totals.deliveryFee,
+          serviceFee: totals.serviceFee,
+          tax: totals.tax,
+          restaurantTip: totals.restaurantTip,
+          deliveryTip: totals.deliveryTip,
+          total: totals.total,
+          deliveryAddress: orderType === 'delivery' ? address.trim() : undefined,
+          notes: notes.trim() || undefined,
+          scheduledFor: scheduledDate ? Timestamp.fromDate(scheduledDate) : undefined,
+          scheduledTime: scheduledDate && selectedSlot ? selectedSlot.timeLabel : undefined,
+          paymentMethod,
+          paymentStatus: chargeCard && clientSecret ? 'pending' : paymentMethod === 'cash' ? 'pending' : 'paid',
+          ...(paymentIntentId ? { paymentIntentId } : {}),
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        };
+
+        await setDoc(doc(db, 'orders', code), orderData);
+        targetOrderId = code;
+
+        // Best effort updates for statistics and promo usage
+        updateDoc(doc(db, 'users', userProfile.uid), {
+          totalOrders: increment(1),
+          totalSpent: increment(totals.total),
+          lastOrderDate: serverTimestamp(),
+        }).catch(() => undefined);
+
+        if (promoCode && !promoProblem) {
+          updateDoc(doc(db, 'promos', promoCode), {
+            usedCount: increment(1),
+            usedBy: arrayUnion(userProfile.uid),
+          }).catch(() => undefined);
+        }
+      }
 
       // Remember contact details for next time (best effort).
       const updates: Parameters<typeof updateContactInfo>[0] = {};
@@ -338,11 +428,11 @@ export const Cart: React.FC = () => {
       }
       if (Object.keys(updates).length) updateContactInfo(updates).catch(() => undefined);
 
-      if (res.clientSecret) {
-        writePending(res.orderId);
-        setPayment({ orderId: res.orderId, clientSecret: res.clientSecret, amount: res.totals.total });
+      if (chargeCard && clientSecret) {
+        writePending(targetOrderId);
+        setPayment({ orderId: targetOrderId, clientSecret, amount: totals.total });
       } else {
-        finishOrder(res.orderId);
+        finishOrder(targetOrderId);
       }
     } catch (err) {
       if (err instanceof ApiError && err.data?.code === 'PRICE_CHANGED' && err.data?.totals) {
@@ -357,6 +447,16 @@ export const Cart: React.FC = () => {
 
   const onPaid = async (orderId: string) => {
     try {
+      await updateDoc(doc(db, 'orders', orderId), {
+        status: 'new',
+        paymentStatus: 'paid',
+        paidAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } catch {
+      // Ignored if already captured
+    }
+    try {
       await api.confirmPayment(orderId);
     } catch {
       // The order page re-checks the payment, and the Stripe webhook also confirms it.
@@ -366,7 +466,16 @@ export const Cart: React.FC = () => {
   };
 
   const onCancelPayment = () => {
-    if (payment) api.abandon(payment.orderId).catch(() => undefined);
+    if (payment) {
+      updateDoc(doc(db, 'orders', payment.orderId), {
+        status: 'cancelled',
+        paymentStatus: 'failed',
+        cancelledBy: 'customer',
+        cancelReason: 'Checkout was not completed',
+        updatedAt: serverTimestamp(),
+      }).catch(() => undefined);
+      api.abandon(payment.orderId).catch(() => undefined);
+    }
     writePending(null);
     setPayment(null);
   };

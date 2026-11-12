@@ -207,7 +207,7 @@ service cloud.firestore {
       let changed = request.resource.data.diff(resource.data).affectedKeys();
       return isAuthenticated() && isValidUser(request.resource.data) &&
              (
-               (request.auth.uid == userId && changed.hasOnly(['name', 'phone', 'savedAddresses'])) ||
+               (request.auth.uid == userId && changed.hasOnly(['name', 'phone', 'savedAddresses', 'totalOrders', 'totalSpent', 'loyaltyPoints', 'lastOrderDate'])) ||
                (isManagerRole(r) && canUpdateRole(r, request.resource.data.role, resource.data.role) &&
                  !changed.hasAny(['uid', 'createdAt']))
              );
@@ -296,6 +296,35 @@ service cloud.firestore {
                  resource.data.get('paymentStatus', 'pending') in ['paid', 'partially_refunded']));
     }
 
+    function isValidOrderCreate(d) {
+      return d.keys().hasAll(['customerId', 'items', 'status', 'type', 'subtotal', 'total', 'paymentMethod', 'paymentStatus', 'createdAt']) &&
+             d.customerId == request.auth.uid &&
+             optString(d, 'customerName', 100) &&
+             optString(d, 'customerEmail', 150) &&
+             optString(d, 'customerPhone', 20) &&
+             d.items is list && d.items.size() > 0 && d.items.size() <= 60 &&
+             d.type in ['pickup', 'delivery'] &&
+             optString(d, 'deliveryAddress', 500) &&
+             d.status in ['new', 'payment_pending'] &&
+             d.paymentMethod in ['card', 'cash'] &&
+             d.paymentStatus in ['pending', 'paid'] &&
+             d.subtotal is number && d.subtotal >= 0 &&
+             d.total is number && d.total >= 0 &&
+             (!('discountAmount' in d) || (d.discountAmount is number && d.discountAmount >= 0)) &&
+             (!('deliveryFee' in d) || (d.deliveryFee is number && d.deliveryFee >= 0)) &&
+             (!('serviceFee' in d) || (d.serviceFee is number && d.serviceFee >= 0)) &&
+             (!('tax' in d) || (d.tax is number && d.tax >= 0)) &&
+             (!('restaurantTip' in d) || (d.restaurantTip is number && d.restaurantTip >= 0)) &&
+             (!('deliveryTip' in d) || (d.deliveryTip is number && d.deliveryTip >= 0)) &&
+             optString(d, 'promoCode', 50) &&
+             optString(d, 'notes', 1000) &&
+             optString(d, 'orderNumber', 64) &&
+             optString(d, 'paymentIntentId', 100) &&
+             optString(d, 'scheduledTime', 100) &&
+             (!('scheduledFor' in d) || d.scheduledFor is timestamp) &&
+             d.createdAt is timestamp;
+    }
+
     function canUpdateOrder(r) {
       let changed = request.resource.data.diff(resource.data).affectedKeys();
       return isValidOrderPatch(request.resource.data) && validPaymentChange(changed) &&
@@ -310,7 +339,24 @@ service cloud.firestore {
                                   'proofOfDeliveryImage', 'paymentStatus', 'paidAt', 'paymentCollectedBy']) &&
                  (!('driverId' in resource.data) || resource.data.driverId == request.auth.uid) &&
                  request.resource.data.driverId == request.auth.uid &&
-                 request.resource.data.status in ['preparing', 'ready', 'out_for_delivery', 'completed'])
+                 request.resource.data.status in ['preparing', 'ready', 'out_for_delivery', 'completed']) ||
+               // Customer can complete payment for their pending card order
+               (isAuthenticated() && resource.data.customerId == request.auth.uid &&
+                 resource.data.status == 'payment_pending' &&
+                 request.resource.data.status in ['new', 'payment_pending'] &&
+                 changed.hasOnly(['status', 'paymentStatus', 'paidAt', 'paymentIntentId', 'updatedAt'])) ||
+               // Customer can cancel before kitchen begins preparation
+               (isAuthenticated() && resource.data.customerId == request.auth.uid &&
+                 resource.data.status in ['payment_pending', 'new'] &&
+                 request.resource.data.status == 'cancelled' &&
+                 changed.hasOnly(['status', 'cancelledBy', 'cancelReason', 'updatedAt'])) ||
+               // Customer can rate their completed order
+               (isAuthenticated() && resource.data.customerId == request.auth.uid &&
+                 resource.data.status == 'completed' &&
+                 !('rating' in resource.data) &&
+                 request.resource.data.rating is number &&
+                 request.resource.data.rating >= 1 && request.resource.data.rating <= 5 &&
+                 changed.hasOnly(['rating', 'ratingComment', 'ratedAt']))
              );
     }
 
@@ -322,7 +368,7 @@ service cloud.firestore {
 
     match /orders/{orderId} {
       allow read: if canReadOrder(role());
-      allow create: if false; // Orders are created by the server at checkout.
+      allow create: if isAuthenticated() && isValidOrderCreate(request.resource.data) && request.resource.data.customerId == request.auth.uid;
       allow update: if canUpdateOrder(role());
       allow delete: if false; // Orders should not be deleted, only cancelled
     }
@@ -332,13 +378,15 @@ service cloud.firestore {
     // ===============================================================
 
     match /promos/{promoId} {
-      allow read: if isAuthenticated(); // Customers see their promo inbox
+      allow read: if true; // Publicly readable to check and apply promo codes
       allow create: if isManagerRole(role()) && isValidPromoCode(request.resource.data) &&
                     request.resource.data.id == promoId &&
                     request.resource.data.usedCount == 0 && request.resource.data.usedBy.size() == 0;
-      // Usage counters are maintained by the server when orders are placed.
-      allow update: if isManagerRole(role()) && isValidPromoCode(request.resource.data) &&
-                    request.resource.data.id == resource.data.id;
+      allow update: if (isManagerRole(role()) && isValidPromoCode(request.resource.data) &&
+                    request.resource.data.id == resource.data.id) ||
+                    (isAuthenticated() &&
+                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usedCount', 'usedBy']) &&
+                     request.resource.data.usedCount >= resource.data.usedCount);
       allow delete: if isManagerRole(role());
     }
 

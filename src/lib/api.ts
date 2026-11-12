@@ -84,6 +84,8 @@ export const api = {
   config: () => apiGet<{ cardPayments: boolean }>('/api/config'),
   health: () => apiGet<{ status: string; firestore: 'ok' | 'error'; cardPayments: boolean; webhooks: boolean }>('/api/health'),
   checkout: (body: CheckoutRequest) => apiPost<CheckoutResponse>('/api/checkout', body),
+  createPaymentIntent: (body: { amountCents: number; orderId: string }) =>
+    apiPost<{ clientSecret: string; paymentIntentId: string }>('/api/create-payment-intent', body),
   confirmPayment: (orderId: string) => apiPost<PaymentStateResponse>(`/api/orders/${encodeURIComponent(orderId)}/confirm-payment`),
   abandon: (orderId: string) => apiPost<PaymentStateResponse>(`/api/orders/${encodeURIComponent(orderId)}/abandon`),
   cancel: (orderId: string, reason?: string) =>
