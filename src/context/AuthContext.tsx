@@ -18,7 +18,7 @@ import { isManagerRole, isStaffRole, type UserProfile, type UserRole } from '../
 import { reportError } from '../utils/errorHandling';
 
 /** Mirrors the bootstrap admin in firestore.rules. */
-const BOOTSTRAP_ADMIN_EMAIL = 'godsonj64@gmail.com';
+const BOOTSTRAP_ADMIN_EMAILS = new Set(['godsonj64@gmail.com', 'godsonchristy25@gmail.com']);
 
 interface AuthContextType {
   user: User | null;
@@ -100,7 +100,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // Only create the profile once we know (from the server) that it does not exist.
           if (fromCache || creatingFor.current === currentUser.uid) return;
           creatingFor.current = currentUser.uid;
-          const isBootstrapAdmin = currentUser.email === BOOTSTRAP_ADMIN_EMAIL && currentUser.emailVerified;
+          const isBootstrapAdmin = BOOTSTRAP_ADMIN_EMAILS.has((currentUser.email || '').toLowerCase()) && currentUser.emailVerified;
           const profile: UserProfile = {
             uid: currentUser.uid,
             email: currentUser.email || '',
@@ -180,7 +180,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const value = useMemo<AuthContextType>(() => {
-    const isBootstrapAdmin = !!user && user.email === BOOTSTRAP_ADMIN_EMAIL && user.emailVerified;
+    const isBootstrapAdmin = !!user && BOOTSTRAP_ADMIN_EMAILS.has((user.email || '').toLowerCase()) && user.emailVerified;
     const role: UserRole | null = userProfile ? (isBootstrapAdmin ? 'admin' : userProfile.role) : null;
     return {
       user,

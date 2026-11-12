@@ -14,7 +14,7 @@ import { reportError } from '../utils/errorHandling';
 
 type Range = 'today' | 'yesterday' | '7d' | '30d' | 'custom';
 
-const RANGE_LABEL: Record<Range, string> = { today: 'Today', yesterday: 'Yesterday', '7d': 'Last 7 days', '30d': 'Last 30 days', custom: 'Custom' };
+const RANGE_LABEL: Record<Range, string> = { today: 'Today', yesterday: 'Yesterday', '7d': '7 days', '30d': '30 days', custom: 'Custom' };
 
 /** Orders that represent real sales: placed (not abandoned) and not cancelled. */
 const isSale = (o: Order) => o.status !== 'payment_pending' && o.status !== 'cancelled';
@@ -215,48 +215,48 @@ export const AdminFinancials: React.FC<{ orders: Order[] }> = ({ orders }) => {
   };
 
   const Stat = ({ label, value, hint, tone = '' }: { label: string; value: string; hint?: string; tone?: string }) => (
-    <div className={`rounded-2xl border p-3 sm:p-4 ${tone || 'bg-white border-gray-100'}`}>
-      <p className="text-[11px] sm:text-xs font-semibold uppercase tracking-wide text-gray-500">{label}</p>
-      <p className="text-lg sm:text-2xl font-extrabold mt-0.5">{value}</p>
-      {hint && <p className="text-[11px] text-gray-500">{hint}</p>}
+    <div className={`rounded-2xl border p-3.5 sm:p-4 ${tone || 'bg-white border-gray-200/80'}`}>
+      <p className="text-xs font-medium text-gray-500">{label}</p>
+      <p className="text-lg sm:text-2xl font-extrabold font-mono tabular-nums mt-0.5 text-gray-900">{value}</p>
+      {hint && <p className="text-[11px] text-gray-500 mt-0.5 tabular-nums">{hint}</p>}
     </div>
   );
 
   return (
-    <section className="space-y-4 pt-4">
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
-        <div>
-          <h2 className="text-xl sm:text-2xl font-extrabold">Sales & insights</h2>
-          <p className="text-sm text-gray-500">Net of refunds. Cancelled and unpaid checkouts are excluded.</p>
+    <section className="space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-1 p-1 bg-gray-200/60 rounded-xl overflow-x-auto hide-scrollbar">
+          {(Object.keys(RANGE_LABEL) as Range[]).map((r) => (
+            <button
+              key={r}
+              onClick={() => setRange(r)}
+              className={`shrink-0 min-h-[34px] px-3 py-1.5 rounded-lg text-xs font-semibold transition whitespace-nowrap ${
+                range === r ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              {RANGE_LABEL[r]}
+            </button>
+          ))}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex gap-1 overflow-x-auto hide-scrollbar">
-            {(Object.keys(RANGE_LABEL) as Range[]).map((r) => (
-              <button
-                key={r}
-                onClick={() => setRange(r)}
-                className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold ${range === r ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-700'}`}
-              >
-                {RANGE_LABEL[r]}
-              </button>
-            ))}
-          </div>
-          <button onClick={exportCsv} disabled={!inRange.length} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-gray-900 text-white disabled:opacity-40">
-            <Download size={14} /> CSV
-          </button>
-        </div>
+        <button
+          onClick={exportCsv}
+          disabled={!inRange.length}
+          className="self-start sm:self-auto min-h-[36px] flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-gray-900 text-white disabled:opacity-40 whitespace-nowrap"
+        >
+          <Download size={14} /> Export CSV
+        </button>
       </div>
 
       {range === 'custom' && (
-        <div className="flex items-center gap-2">
-          <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className={`${adminInput} max-w-[170px]`} aria-label="Start date" />
+        <div className="flex flex-wrap items-center gap-2">
+          <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className={`${adminInput} max-w-[165px]`} aria-label="Start date" />
           <span className="text-gray-400">–</span>
-          <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className={`${adminInput} max-w-[170px]`} aria-label="End date" />
+          <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className={`${adminInput} max-w-[165px]`} aria-label="End date" />
           {loadingCustom && <Spinner className="text-gray-400" />}
         </div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
         <Stat label="Net sales" value={formatMoney(stats.net)} hint={`${stats.count} orders · avg ${formatMoney(stats.avg)}`} />
         <Stat label="Card collected" value={formatMoney(stats.card)} />
         <Stat label="Cash collected" value={formatMoney(stats.cash)} />
@@ -267,9 +267,9 @@ export const AdminFinancials: React.FC<{ orders: Order[] }> = ({ orders }) => {
         <Stat label="Pickup / delivery" value={`${stats.pickup} / ${stats.delivery}`} hint={stats.cancelled ? `${stats.cancelled} cancelled` : undefined} />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-        <div className="lg:col-span-2 bg-white rounded-3xl border border-gray-100 p-4 sm:p-5">
-          <h3 className="font-bold mb-3">Revenue</h3>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4">
+        <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-200/80 p-4 sm:p-5">
+          <h3 className="font-bold text-sm sm:text-base mb-3">Revenue breakdown</h3>
           <div className="h-56 sm:h-64">
             {chart.some((c) => c.revenue > 0) ? (
               <ResponsiveContainer width="100%" height="100%">
@@ -282,27 +282,28 @@ export const AdminFinancials: React.FC<{ orders: Order[] }> = ({ orders }) => {
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-full flex items-center justify-center text-sm text-gray-400">No sales in this period</div>
+              <div className="h-full flex items-center justify-center text-sm text-gray-400">No sales recorded in this period</div>
             )}
           </div>
         </div>
-        <div className="bg-white rounded-3xl border border-gray-100 p-4 sm:p-5">
-          <h3 className="font-bold mb-3">Top sellers</h3>
+        <div className="bg-white rounded-2xl border border-gray-200/80 p-4 sm:p-5">
+          <h3 className="font-bold text-sm sm:text-base mb-3">Top selling items</h3>
           {topItems.length ? (
-            <ol className="space-y-2.5">
+            <ol className="space-y-3">
               {topItems.map((item, i) => {
                 const max = topItems[0].quantity || 1;
                 return (
                   <li key={item.name + i} className="text-sm">
                     <div className="flex justify-between gap-2">
-                      <span className="font-semibold truncate">
-                        {i + 1}. {item.name}
+                      <span className="font-semibold truncate text-gray-900">
+                        <span className="font-mono tabular-nums text-gray-400 mr-1.5">0{i + 1}.</span>
+                        {item.name}
                       </span>
-                      <span className="text-gray-500 whitespace-nowrap">
+                      <span className="text-gray-500 font-mono tabular-nums whitespace-nowrap text-xs">
                         {item.quantity} · {formatMoney(fromCents(item.revenue))}
                       </span>
                     </div>
-                    <div className="h-1.5 rounded-full bg-gray-100 mt-1">
+                    <div className="h-1.5 rounded-full bg-gray-100 mt-1.5">
                       <div className="h-full rounded-full bg-gray-900" style={{ width: `${(item.quantity / max) * 100}%` }} />
                     </div>
                   </li>
@@ -310,7 +311,7 @@ export const AdminFinancials: React.FC<{ orders: Order[] }> = ({ orders }) => {
               })}
             </ol>
           ) : (
-            <p className="text-sm text-gray-400">No sales in this period</p>
+            <p className="text-sm text-gray-400">No items sold in this period</p>
           )}
         </div>
       </div>

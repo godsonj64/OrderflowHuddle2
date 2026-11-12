@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { collection, doc, onSnapshot, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import toast from 'react-hot-toast';
-import { AlertTriangle, Banknote, Camera, CheckCircle2, MapPin, Navigation, Package, PackageCheck, Phone, Truck } from 'lucide-react';
+import { Camera, CheckCircle2, MapPin, Navigation, Package, Phone } from 'lucide-react';
 import { db } from '../firebase';
 import type { Order } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -112,78 +112,85 @@ export const DriverDashboard: React.FC = () => {
   const cashToCollect = useMemo(() => mine.filter(isCashDue).reduce((sum, o) => sum + o.total, 0), [mine]);
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-3xl mx-auto space-y-5">
       <div className="flex items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold">Deliveries</h1>
-          <p className="text-sm text-gray-500">Accept a delivery, pick it up, then confirm drop-off.</p>
+          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">Deliveries</h1>
+          <p className="text-xs sm:text-sm text-gray-500 mt-0.5">Accept a delivery, pick it up, then confirm drop-off.</p>
         </div>
         {cashToCollect > 0 && (
-          <div className="text-right rounded-2xl bg-amber-50 border border-amber-200 px-3 py-2">
-            <p className="text-[11px] font-semibold uppercase text-amber-800">Cash to collect</p>
-            <p className="font-extrabold text-amber-900">{formatMoney(cashToCollect)}</p>
+          <div className="text-right rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 shrink-0">
+            <p className="text-[11px] font-semibold text-amber-800">Cash to collect</p>
+            <p className="font-extrabold font-mono tabular-nums text-amber-900">{formatMoney(cashToCollect)}</p>
           </div>
         )}
       </div>
 
       {mine.length > 0 && (
         <section className="space-y-3">
-          <h2 className="font-bold flex items-center gap-2">
-            <Navigation size={18} /> My deliveries ({mine.length})
+          <h2 className="font-bold text-sm uppercase tracking-wider text-gray-500">
+            My active deliveries ({mine.length})
           </h2>
           {mine.map((order) => {
             const cashDue = isCashDue(order);
             const pickedUp_ = order.deliveryStatus === 'picked_up' || order.status === 'out_for_delivery';
             return (
-              <article key={order.id} className="bg-gray-900 text-white rounded-3xl p-5 space-y-4">
+              <article key={order.id} className="bg-gray-900 text-white rounded-2xl p-4 sm:p-5 space-y-4">
                 <header className="flex items-start justify-between gap-3">
                   <div>
-                    <h3 className="text-2xl font-extrabold font-mono">#{orderCode(order)}</h3>
-                    <p className="text-gray-300">{order.customerName}</p>
+                    <h3 className="text-2xl font-extrabold font-mono tabular-nums">#{orderCode(order)}</h3>
+                    <p className="text-sm text-gray-300 mt-0.5">{order.customerName}</p>
                   </div>
-                  <span className="text-xs font-bold uppercase tracking-wide bg-white/15 px-3 py-1 rounded-full">
+                  <span className="text-xs font-bold uppercase tracking-wide bg-white/15 px-2.5 py-1 rounded-md">
                     {pickedUp_ ? 'On the way' : order.status === 'ready' ? 'Ready for pickup' : 'Being prepared'}
                   </span>
                 </header>
                 {cashDue && (
-                  <p className="flex items-center gap-2 rounded-2xl bg-amber-400 text-black px-4 py-3 font-extrabold">
-                    <Banknote size={20} /> Collect {formatMoney(order.total)} cash
+                  <p className="rounded-xl bg-amber-400 text-black px-4 py-2.5 text-sm font-extrabold font-mono tabular-nums">
+                    Collect {formatMoney(order.total)} cash at drop-off
                   </p>
                 )}
-                <div className="rounded-2xl bg-white/10 p-4 space-y-2 text-sm">
-                  <p className="flex gap-2">
-                    <MapPin size={16} className="shrink-0 mt-0.5" /> {order.deliveryAddress}
+                <div className="rounded-xl bg-white/10 p-3.5 space-y-2 text-sm">
+                  <p className="flex gap-2 font-medium">
+                    <MapPin size={16} className="shrink-0 mt-0.5 text-gray-300" /> {order.deliveryAddress}
                   </p>
-                  {order.notes && (
-                    <p className="flex gap-2 text-amber-200">
-                      <AlertTriangle size={16} className="shrink-0 mt-0.5" /> {order.notes}
-                    </p>
-                  )}
-                  <p className="text-gray-300">{order.items.map((i) => `${i.quantity}× ${i.name}`).join(', ')}</p>
+                  {order.notes && <p className="text-xs text-amber-200 font-medium">Note: {order.notes}</p>}
+                  <p className="text-xs text-gray-300">{order.items.map((i) => `${i.quantity}× ${i.name}`).join(' · ')}</p>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
-                  <a href={mapsUrl(order.deliveryAddress)} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center gap-1 rounded-2xl bg-white/10 py-3 text-xs font-semibold">
-                    <Navigation size={18} /> Navigate
+                  <a
+                    href={mapsUrl(order.deliveryAddress)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="min-h-[48px] flex flex-col items-center justify-center gap-1 rounded-xl bg-white/10 hover:bg-white/15 py-2.5 text-xs font-semibold transition"
+                  >
+                    <Navigation size={17} /> Navigate
                   </a>
                   {order.customerPhone ? (
-                    <a href={`tel:${order.customerPhone}`} className="flex flex-col items-center gap-1 rounded-2xl bg-white/10 py-3 text-xs font-semibold">
-                      <Phone size={18} /> Call
+                    <a
+                      href={`tel:${order.customerPhone}`}
+                      className="min-h-[48px] flex flex-col items-center justify-center gap-1 rounded-xl bg-white/10 hover:bg-white/15 py-2.5 text-xs font-semibold transition"
+                    >
+                      <Phone size={17} /> Call
                     </a>
                   ) : (
                     <span />
                   )}
                   {pickedUp_ ? (
-                    <button onClick={() => openComplete(order)} className="flex flex-col items-center gap-1 rounded-2xl bg-emerald-500 py-3 text-xs font-bold">
-                      <CheckCircle2 size={18} /> Delivered
+                    <button
+                      onClick={() => openComplete(order)}
+                      className="min-h-[48px] flex flex-col items-center justify-center gap-1 rounded-xl bg-emerald-500 hover:bg-emerald-600 py-2.5 text-xs font-bold transition"
+                    >
+                      <CheckCircle2 size={17} /> Delivered
                     </button>
                   ) : (
                     <button
                       onClick={() => pickedUp(order)}
                       disabled={busyId === order.id || order.status !== 'ready'}
-                      className="flex flex-col items-center gap-1 rounded-2xl bg-white text-gray-900 py-3 text-xs font-bold disabled:opacity-40"
+                      className="min-h-[48px] flex flex-col items-center justify-center gap-1 rounded-xl bg-white text-gray-900 py-2.5 text-xs font-bold disabled:opacity-40 transition"
                       title={order.status !== 'ready' ? 'Wait until the kitchen marks it ready' : undefined}
                     >
-                      {busyId === order.id ? <Spinner size={18} /> : <Package size={18} />} Picked up
+                      {busyId === order.id ? <Spinner size={17} /> : <Package size={17} />} Picked up
                     </button>
                   )}
                 </div>
@@ -194,36 +201,44 @@ export const DriverDashboard: React.FC = () => {
       )}
 
       <section className="space-y-3">
-        <h2 className="font-bold flex items-center gap-2">
-          <Truck size={18} /> Available ({available.length})
+        <h2 className="font-bold text-sm uppercase tracking-wider text-gray-500">
+          Available for pickup ({available.length})
         </h2>
         {available.length === 0 ? (
-          <div className="rounded-3xl border border-dashed border-gray-200 bg-white p-10 text-center text-gray-500 text-sm">No deliveries waiting. New ones appear here automatically.</div>
+          <div className="rounded-2xl border border-dashed border-gray-200 bg-white p-10 text-center text-gray-500 text-sm">
+            No deliveries waiting. New ones appear here automatically.
+          </div>
         ) : (
           <div className="grid sm:grid-cols-2 gap-3">
             {available.map((order) => (
-              <article key={order.id} className="bg-white rounded-3xl border border-gray-100 p-4 flex flex-col gap-3">
+              <article key={order.id} className="bg-white rounded-2xl border border-gray-200/80 p-4 flex flex-col gap-3">
                 <header className="flex items-start justify-between gap-2">
                   <div>
-                    <h3 className="font-extrabold text-lg font-mono">#{orderCode(order)}</h3>
-                    <p className="text-sm text-gray-500">
+                    <h3 className="font-extrabold text-lg font-mono tabular-nums">#{orderCode(order)}</h3>
+                    <p className="text-xs text-gray-500 mt-0.5">
                       {order.customerName} · {timeAgo(order.createdAt)}
                     </p>
                   </div>
-                  <span className={`text-[11px] font-bold uppercase px-2 py-1 rounded-full ${order.status === 'ready' ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'}`}>
+                  <span
+                    className={`text-[11px] font-bold uppercase px-2 py-0.5 rounded-md border ${
+                      order.status === 'ready' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-orange-50 text-orange-700 border-orange-200'
+                    }`}
+                  >
                     {order.status === 'ready' ? 'Ready' : 'Cooking'}
                   </span>
                 </header>
-                <p className="text-sm text-gray-600 flex gap-1.5">
-                  <MapPin size={15} className="shrink-0 mt-0.5 text-gray-400" /> <span className="line-clamp-2">{order.deliveryAddress}</span>
-                </p>
-                {isCashDue(order) && <p className="text-xs font-bold text-amber-800 bg-amber-50 rounded-xl px-3 py-1.5">Cash order · collect {formatMoney(order.total)}</p>}
+                <p className="text-sm text-gray-700 line-clamp-2">{order.deliveryAddress}</p>
+                {isCashDue(order) && (
+                  <p className="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200/70 rounded-xl px-3 py-1.5 tabular-nums">
+                    Cash order · collect {formatMoney(order.total)}
+                  </p>
+                )}
                 <button
                   onClick={() => accept(order)}
                   disabled={busyId === order.id}
-                  className="mt-auto w-full bg-gray-900 text-white rounded-2xl py-3 text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-50"
+                  className="mt-auto w-full min-h-[44px] bg-gray-900 hover:bg-black text-white rounded-xl py-2.5 text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-50 transition"
                 >
-                  {busyId === order.id ? <Spinner size={16} /> : <PackageCheck size={16} />} Accept delivery
+                  {busyId === order.id && <Spinner size={16} />} Accept delivery
                 </button>
               </article>
             ))}
@@ -249,7 +264,7 @@ export const DriverDashboard: React.FC = () => {
               <label className="flex items-start gap-3 rounded-2xl bg-amber-50 border border-amber-200 p-4 cursor-pointer">
                 <input type="checkbox" checked={cashConfirmed} onChange={(e) => setCashConfirmed(e.target.checked)} className="w-5 h-5 mt-0.5 accent-amber-600" />
                 <span className="text-sm text-amber-900">
-                  I collected <strong>{formatMoney(completing.total)}</strong> in cash from the customer.
+                  I collected <strong className="font-mono tabular-nums">{formatMoney(completing.total)}</strong> in cash from the customer.
                 </span>
               </label>
             )}

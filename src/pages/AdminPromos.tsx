@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Timestamp, collection, deleteDoc, deleteField, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
-import { CalendarClock, Pencil, Plus, Tag, Trash2, Users } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { db } from '../firebase';
 import type { PromoCode } from '../types';
 import { ConfirmDialog, Field, PageSpinner, Sheet, Spinner, Toggle, adminInput } from '../components/ui';
@@ -155,57 +155,84 @@ export const AdminPromos: React.FC = () => {
   const setF = (patch: Partial<Form>) => setEditing((e) => (e ? { ...e, form: { ...e.form, ...patch } } : e));
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 sm:space-y-5">
       <div className="flex items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold">Promo codes</h1>
-          <p className="text-sm text-gray-500">Discounts are validated and applied by the server at checkout.</p>
+          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">Promo codes</h1>
+          <p className="text-xs sm:text-sm text-gray-500 mt-0.5">Discounts are validated and applied by the server at checkout.</p>
         </div>
-        <button onClick={() => setEditing({ promo: null, form: { ...emptyForm } })} className="px-4 py-2.5 rounded-2xl bg-gray-900 text-white font-semibold text-sm flex items-center gap-1.5">
+        <button
+          onClick={() => setEditing({ promo: null, form: { ...emptyForm } })}
+          className="min-h-[42px] px-4 py-2 rounded-xl bg-gray-900 hover:bg-black text-white font-semibold text-sm flex items-center gap-1.5 whitespace-nowrap shrink-0"
+        >
           <Plus size={16} /> New code
         </button>
       </div>
 
       {promos.length === 0 ? (
-        <div className="bg-white rounded-3xl border border-dashed border-gray-200 p-10 text-center text-gray-500">No promo codes yet. Create one to reward regulars or run a weekend deal.</div>
+        <div className="bg-white rounded-2xl border border-dashed border-gray-200 p-10 text-center text-gray-500 text-sm">
+          No promo codes yet. Create one to reward regulars or run a weekend deal.
+        </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
           {promos.map((p) => {
             const expires = toDate(p.expiresAt);
             const expired = !!expires && expires.getTime() < Date.now();
             const exhausted = !!p.usageLimit && p.usedCount >= p.usageLimit;
             return (
-              <article key={p.id} className={`bg-white rounded-3xl border p-4 space-y-3 ${p.active && !expired && !exhausted ? 'border-gray-100' : 'border-gray-100 opacity-70'}`}>
-                <header className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h3 className="font-extrabold font-mono text-lg flex items-center gap-2">
-                      <Tag size={16} className="text-gray-400" /> {p.id}
-                    </h3>
-                    <p className="text-sm text-gray-600">{describe(p)}</p>
-                    {p.description && <p className="text-xs text-gray-500 mt-0.5">{p.description}</p>}
+              <article
+                key={p.id}
+                className={`bg-white rounded-2xl border border-gray-200/80 p-4 sm:p-5 flex flex-col justify-between gap-3.5 ${
+                  p.active && !expired && !exhausted ? '' : 'opacity-70'
+                }`}
+              >
+                <div className="space-y-2">
+                  <header className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="font-extrabold font-mono text-lg tracking-tight text-gray-900">{p.id}</h3>
+                      <p className="text-sm font-semibold text-gray-700 mt-0.5 tabular-nums">{describe(p)}</p>
+                      {p.description && <p className="text-xs text-gray-500 mt-0.5">{p.description}</p>}
+                    </div>
+                    <button
+                      onClick={() => toggle(p)}
+                      className={`shrink-0 min-h-[34px] px-3 py-1 rounded-lg text-xs font-bold transition ${
+                        p.active ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-gray-100 text-gray-500'
+                      }`}
+                    >
+                      {p.active ? 'Active' : 'Off'}
+                    </button>
+                  </header>
+
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500 tabular-nums">
+                    <span>
+                      {p.usedCount || 0}
+                      {p.usageLimit ? ` / ${p.usageLimit}` : ''} used{exhausted ? ' (limit reached)' : ''}
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <span className={expired ? 'text-red-600 font-semibold' : ''}>
+                      {expires ? `${expired ? 'Expired' : 'Expires'} ${expires.toLocaleDateString()}` : 'No expiry'}
+                    </span>
+                    {!!p.assignedTo?.length && (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        <span>Private ({p.assignedTo.length} customer{p.assignedTo.length === 1 ? '' : 's'})</span>
+                      </>
+                    )}
                   </div>
-                  <button
-                    onClick={() => toggle(p)}
-                    className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold ${p.active ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}
-                  >
-                    {p.active ? 'Active' : 'Off'}
-                  </button>
-                </header>
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
-                  <span className="flex items-center gap-1">
-                    <Users size={13} /> {p.usedCount || 0}
-                    {p.usageLimit ? ` / ${p.usageLimit}` : ''} used{exhausted ? ' (limit reached)' : ''}
-                  </span>
-                  <span className={`flex items-center gap-1 ${expired ? 'text-red-600 font-semibold' : ''}`}>
-                    <CalendarClock size={13} /> {expires ? `${expired ? 'Expired' : 'Expires'} ${expires.toLocaleDateString()}` : 'No expiry'}
-                  </span>
-                  {!!p.assignedTo?.length && <span>Private · {p.assignedTo.length} customer{p.assignedTo.length === 1 ? '' : 's'}</span>}
                 </div>
-                <footer className="flex gap-2">
-                  <button onClick={() => setEditing({ promo: p, form: fromPromo(p) })} className="flex-1 py-2.5 rounded-2xl bg-gray-100 text-sm font-semibold flex items-center justify-center gap-1.5">
-                    <Pencil size={15} /> Edit
+
+                <footer className="flex gap-2 pt-1 border-t border-gray-100">
+                  <button
+                    onClick={() => setEditing({ promo: p, form: fromPromo(p) })}
+                    className="flex-1 min-h-[38px] py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-xs sm:text-sm font-semibold transition"
+                  >
+                    Edit code
                   </button>
-                  <button onClick={() => setToDelete(p)} className="px-4 py-2.5 rounded-2xl text-red-600 hover:bg-red-50 text-sm font-semibold" aria-label={`Delete ${p.id}`}>
+                  <button
+                    onClick={() => setToDelete(p)}
+                    className="min-h-[38px] px-3.5 py-2 rounded-xl text-red-600 hover:bg-red-50 text-xs sm:text-sm font-semibold transition"
+                    aria-label={`Delete ${p.id}`}
+                  >
                     <Trash2 size={15} />
                   </button>
                 </footer>
@@ -240,7 +267,7 @@ export const AdminPromos: React.FC = () => {
                 </select>
               </Field>
               <Field label={f.discountType === 'percentage' ? 'Percent' : 'Amount'}>
-                <input type="number" inputMode="decimal" min={0} max={f.discountType === 'percentage' ? 100 : undefined} value={f.discountValue} onChange={(e) => setF({ discountValue: e.target.value })} className={adminInput} />
+                <input type="number" inputMode="decimal" min={0} max={f.discountType === 'percentage' ? 100 : undefined} value={f.discountValue} onChange={(e) => setF({ discountValue: e.target.value })} className={`${adminInput} font-mono tabular-nums`} />
               </Field>
             </div>
             <Field label="Description" hint="Optional. Shown to customers in their offers.">
@@ -248,16 +275,16 @@ export const AdminPromos: React.FC = () => {
             </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Minimum order ($)">
-                <input type="number" inputMode="decimal" min={0} value={f.minSubtotal} onChange={(e) => setF({ minSubtotal: e.target.value })} className={adminInput} placeholder="None" />
+                <input type="number" inputMode="decimal" min={0} value={f.minSubtotal} onChange={(e) => setF({ minSubtotal: e.target.value })} className={`${adminInput} font-mono tabular-nums`} placeholder="None" />
               </Field>
               <Field label="Total uses limit">
-                <input type="number" inputMode="numeric" min={0} value={f.usageLimit} onChange={(e) => setF({ usageLimit: e.target.value })} className={adminInput} placeholder="Unlimited" />
+                <input type="number" inputMode="numeric" min={0} value={f.usageLimit} onChange={(e) => setF({ usageLimit: e.target.value })} className={`${adminInput} font-mono tabular-nums`} placeholder="Unlimited" />
               </Field>
               <Field label="Unlock after # orders">
-                <input type="number" inputMode="numeric" min={0} value={f.minOrders} onChange={(e) => setF({ minOrders: e.target.value })} className={adminInput} placeholder="Anyone" />
+                <input type="number" inputMode="numeric" min={0} value={f.minOrders} onChange={(e) => setF({ minOrders: e.target.value })} className={`${adminInput} font-mono tabular-nums`} placeholder="Anyone" />
               </Field>
               <Field label="Unlock after $ spent">
-                <input type="number" inputMode="decimal" min={0} value={f.minSpent} onChange={(e) => setF({ minSpent: e.target.value })} className={adminInput} placeholder="Anyone" />
+                <input type="number" inputMode="decimal" min={0} value={f.minSpent} onChange={(e) => setF({ minSpent: e.target.value })} className={`${adminInput} font-mono tabular-nums`} placeholder="Anyone" />
               </Field>
             </div>
             <Field label="Expires" hint="Leave empty to keep it running.">

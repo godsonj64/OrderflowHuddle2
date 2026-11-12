@@ -62,7 +62,7 @@ const CURRENCY = 'usd';
 const MIN_CARD_CHARGE_CENTS = 50; // Stripe minimum for USD
 const MAX_OPEN_UNPAID_CASH_ORDERS = 3;
 /** Mirrors the bootstrap admin in firestore.rules. Override with ADMIN_EMAILS="a@x.com,b@y.com". */
-const BOOTSTRAP_ADMINS = (process.env.ADMIN_EMAILS || 'godsonj64@gmail.com')
+const BOOTSTRAP_ADMINS = (process.env.ADMIN_EMAILS || 'godsonj64@gmail.com,godsonchristy25@gmail.com')
   .split(',')
   .map((e) => e.trim().toLowerCase())
   .filter(Boolean);

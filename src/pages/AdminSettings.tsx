@@ -65,10 +65,10 @@ function normalize(profile: RestaurantProfile | null): RestaurantProfile {
 
 function Card({ title, description, children }: { title?: string; description?: string; children: React.ReactNode }) {
   return (
-    <section className="bg-white rounded-3xl border border-gray-100 p-4 sm:p-5 space-y-4">
+    <section className="bg-white rounded-2xl border border-gray-200/80 p-4 sm:p-5 space-y-4">
       {title && (
         <div>
-          <h3 className="font-bold">{title}</h3>
+          <h3 className="font-bold text-gray-900">{title}</h3>
           {description && <p className="text-xs text-gray-500 mt-0.5">{description}</p>}
         </div>
       )}
@@ -97,47 +97,77 @@ function MoneyInput({ value, onChange, placeholder = '0.00', suffix }: { value: 
           setText(e.target.value);
           onChange(parseAmount(e.target.value, 0, { max: 100000 }));
         }}
-        className={`${adminInput} ${suffix ? 'pr-8' : 'pl-6'}`}
+        className={`${adminInput} font-mono tabular-nums ${suffix ? 'pr-10' : 'pl-6'}`}
       />
-      {suffix && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">{suffix}</span>}
+      {suffix && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs font-medium">{suffix}</span>}
     </div>
   );
 }
 
 function DayRow({ day, hours, onChange }: { day: string; hours: DayHours; onChange: (h: DayHours) => void }) {
   return (
-    <div className="py-3 space-y-2">
-      <div className="flex items-center gap-3">
-        <label className="flex items-center gap-2 w-32 shrink-0 font-semibold text-sm">
-          <input type="checkbox" checked={!hours.closed} onChange={(e) => onChange({ ...hours, closed: !e.target.checked })} className="w-4 h-4 accent-gray-900" />
+    <div className="py-3 space-y-2.5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <label className="flex items-center gap-2.5 min-h-[36px] sm:w-36 shrink-0 font-semibold text-sm text-gray-900 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={!hours.closed}
+            onChange={(e) => onChange({ ...hours, closed: !e.target.checked })}
+            className="w-4 h-4 rounded accent-gray-900"
+          />
           {day}
+          {hours.closed && <span className="ml-auto sm:hidden text-xs font-normal text-gray-400">Closed</span>}
         </label>
         {hours.closed ? (
-          <span className="text-sm text-gray-400">Closed</span>
+          <span className="hidden sm:inline text-sm text-gray-400">Closed</span>
         ) : (
-          <div className="flex items-center gap-1.5">
-            <input type="time" value={hours.open} onChange={(e) => onChange({ ...hours, open: e.target.value })} className={`${adminInput} w-[118px]`} aria-label={`${day} opens`} />
-            <span className="text-gray-400">–</span>
-            <input type="time" value={hours.close} onChange={(e) => onChange({ ...hours, close: e.target.value })} className={`${adminInput} w-[118px]`} aria-label={`${day} closes`} />
+          <div className="grid grid-cols-[1fr_auto_1fr] sm:flex items-center gap-2 flex-1 sm:justify-end">
+            <input
+              type="time"
+              value={hours.open}
+              onChange={(e) => onChange({ ...hours, open: e.target.value })}
+              className={`${adminInput} sm:w-[132px] font-mono tabular-nums`}
+              aria-label={`${day} opens`}
+            />
+            <span className="text-gray-400 text-center">–</span>
+            <input
+              type="time"
+              value={hours.close}
+              onChange={(e) => onChange({ ...hours, close: e.target.value })}
+              className={`${adminInput} sm:w-[132px] font-mono tabular-nums`}
+              aria-label={`${day} closes`}
+            />
           </div>
         )}
       </div>
       {!hours.closed && (
-        <div className="pl-0 sm:pl-[140px] space-y-2">
-          <label className="flex items-center gap-2 text-xs text-gray-600">
+        <div className="pl-0 sm:pl-36 space-y-2">
+          <label className="inline-flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
             <input
               type="checkbox"
               checked={!!hours.hasSecondSlot}
               onChange={(e) => onChange({ ...hours, hasSecondSlot: e.target.checked, open2: hours.open2 || '17:00', close2: hours.close2 || '21:00' })}
-              className="w-4 h-4 accent-gray-900"
+              className="w-4 h-4 rounded accent-gray-900"
             />
-            Split shift (e.g. lunch and dinner)
+            Split shift (e.g. lunch & dinner)
           </label>
           {hours.hasSecondSlot && (
-            <div className="flex items-center gap-1.5">
-              <input type="time" value={hours.open2 || '17:00'} onChange={(e) => onChange({ ...hours, open2: e.target.value })} className={`${adminInput} w-[118px]`} aria-label={`${day} second shift opens`} />
-              <span className="text-gray-400">–</span>
-              <input type="time" value={hours.close2 || '21:00'} onChange={(e) => onChange({ ...hours, close2: e.target.value })} className={`${adminInput} w-[118px]`} aria-label={`${day} second shift closes`} />
+            <div className="grid grid-cols-[1fr_auto_1fr] sm:flex items-center gap-2 sm:justify-end">
+              <input
+                type="time"
+                value={hours.open2 || '17:00'}
+                onChange={(e) => onChange({ ...hours, open2: e.target.value })}
+                className={`${adminInput} sm:w-[132px] font-mono tabular-nums`}
+                aria-label={`${day} second shift opens`}
+              />
+              <span className="text-gray-400 text-center">–</span>
+              <input
+                type="time"
+                value={hours.close2 || '21:00'}
+                onChange={(e) => onChange({ ...hours, close2: e.target.value })}
+                className={`${adminInput} sm:w-[132px] font-mono tabular-nums`}
+                aria-label={`${day} second shift closes`}
+              />
             </div>
           )}
         </div>
@@ -283,20 +313,26 @@ export const AdminSettings: React.FC = () => {
     <div className={`space-y-4 ${dirty ? 'pb-28' : ''}`}>
       <div className="flex items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold">Settings</h1>
-          <p className="text-sm text-gray-500">Changes go live for customers as soon as you save.</p>
+          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">Settings</h1>
+          <p className="text-xs sm:text-sm text-gray-500 mt-0.5">Changes go live for customers as soon as you save.</p>
         </div>
-        <button onClick={() => setPreviewOpen(true)} className="lg:hidden px-4 py-2.5 rounded-2xl bg-white border border-gray-200 text-sm font-semibold flex items-center gap-1.5">
-          <Eye size={16} /> Preview
+        <button
+          onClick={() => setPreviewOpen(true)}
+          className="lg:hidden min-h-[40px] px-3.5 py-2 rounded-xl bg-white border border-gray-200 hover:bg-gray-50 text-xs sm:text-sm font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0"
+        >
+          <Eye size={15} /> Preview
         </button>
       </div>
 
-      <div className="flex gap-1.5 overflow-x-auto hide-scrollbar">
+      {/* Segmented settings tabs */}
+      <div className="grid grid-cols-5 sm:inline-flex items-center gap-1 p-1 bg-gray-200/60 rounded-xl">
         {TABS.map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`shrink-0 px-4 py-2 rounded-full text-sm font-semibold ${tab === t.id ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-700'}`}
+            className={`min-h-[36px] px-1.5 sm:px-3.5 py-1.5 rounded-lg text-[11px] sm:text-sm font-semibold transition whitespace-nowrap text-center truncate ${
+              tab === t.id ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-600 hover:text-gray-900'
+            }`}
           >
             {t.label}
           </button>
@@ -418,7 +454,7 @@ export const AdminSettings: React.FC = () => {
           {tab === 'payments' && (
             <>
               <Card title="Card payments (Stripe)">
-                <div className={`flex items-start gap-3 rounded-2xl px-4 py-3 text-sm ${cardConfigured ? 'bg-emerald-50 text-emerald-900' : 'bg-amber-50 text-amber-900'}`}>
+                <div className={`flex items-start gap-3 rounded-xl px-4 py-3 text-sm ${cardConfigured ? 'bg-emerald-50 text-emerald-900' : 'bg-amber-50 text-amber-900'}`}>
                   {cardConfigured ? <CheckCircle2 size={18} className="shrink-0 mt-0.5" /> : <XCircle size={18} className="shrink-0 mt-0.5" />}
                   <div>
                     {cardConfigured ? (
@@ -466,14 +502,14 @@ export const AdminSettings: React.FC = () => {
                   ) : (
                     <input value={draft.timezone || ''} onChange={(e) => update({ timezone: e.target.value })} className={adminInput} placeholder="America/New_York" />
                   )}
-                  <button type="button" onClick={() => update({ timezone: browserTimeZone() })} className="shrink-0 px-4 py-2.5 rounded-xl bg-gray-100 text-sm font-semibold">
+                  <button type="button" onClick={() => update({ timezone: browserTimeZone() })} className="shrink-0 min-h-[42px] px-4 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-xs sm:text-sm font-semibold">
                     Use this device's time zone
                   </button>
                 </div>
                 {!isValidTimeZone(draft.timezone) && <p className="text-xs text-red-600">That time zone isn't recognized.</p>}
               </Card>
               <Card title="Opening hours">
-                <p className={`text-sm rounded-xl px-3 py-2 ${draftStatus.state === 'open' ? 'bg-emerald-50 text-emerald-800' : 'bg-gray-100 text-gray-700'}`}>
+                <p className={`text-xs sm:text-sm rounded-xl px-3.5 py-2.5 ${draftStatus.state === 'open' ? 'bg-emerald-50 text-emerald-800' : 'bg-gray-100 text-gray-700'}`}>
                   With these hours you are: <strong>{draftStatus.badge}</strong>
                   {draftStatus.detail ? ` · ${draftStatus.detail}` : ''}
                 </p>
@@ -483,10 +519,10 @@ export const AdminSettings: React.FC = () => {
                   ))}
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={() => copyMonday(WEEK_DAYS.slice(0, 5))} className="px-3 py-2 rounded-xl bg-gray-100 text-xs font-semibold flex items-center gap-1.5">
+                  <button type="button" onClick={() => copyMonday(WEEK_DAYS.slice(0, 5))} className="min-h-[38px] px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-xs font-semibold flex items-center gap-1.5">
                     <Copy size={14} /> Copy Monday to weekdays
                   </button>
-                  <button type="button" onClick={() => copyMonday(WEEK_DAYS)} className="px-3 py-2 rounded-xl bg-gray-100 text-xs font-semibold flex items-center gap-1.5">
+                  <button type="button" onClick={() => copyMonday(WEEK_DAYS)} className="min-h-[38px] px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-xs font-semibold flex items-center gap-1.5">
                     <Copy size={14} /> Copy Monday to every day
                   </button>
                 </div>
@@ -497,12 +533,12 @@ export const AdminSettings: React.FC = () => {
 
           {tab === 'appearance' && <AppearanceSettings draft={draft} update={update} />}
 
-          <p className={`text-xs ${overBudget ? 'text-red-600 font-semibold' : 'text-gray-400'}`}>
+          <p className={`text-xs tabular-nums ${overBudget ? 'text-red-600 font-semibold' : 'text-gray-400'}`}>
             Store images: {formatBytes(bytes)} of {formatBytes(DOC_BUDGET_BYTES)} used{overBudget ? ' — remove some photos before saving.' : ''}
           </p>
         </div>
 
-        <aside className="hidden lg:block sticky top-32">
+        <aside className="hidden lg:block sticky top-24">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2 text-center">Live preview</p>
           <StorefrontPreview profile={draft} items={items} />
         </aside>
@@ -515,13 +551,13 @@ export const AdminSettings: React.FC = () => {
       </Sheet>
 
       {dirty && (
-        <div className="fixed inset-x-0 bottom-0 z-50 bg-white/95 backdrop-blur border-t border-gray-200 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div className="fixed inset-x-0 bottom-[calc(60px+env(safe-area-inset-bottom))] md:bottom-0 z-50 bg-white/95 backdrop-blur border-t border-gray-200 px-4 pt-3 pb-3 md:pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <div className="max-w-7xl mx-auto flex items-center gap-3">
             <p className="text-sm font-semibold text-gray-700 hidden sm:block">You have unsaved changes</p>
-            <button onClick={discard} disabled={saving} className="ml-auto px-5 py-3 rounded-2xl bg-gray-100 font-semibold text-sm">
+            <button onClick={discard} disabled={saving} className="ml-auto px-5 py-2.5 rounded-xl bg-gray-100 font-semibold text-sm">
               Discard
             </button>
-            <button onClick={save} disabled={saving || overBudget} className="px-6 py-3 rounded-2xl bg-gray-900 text-white font-semibold text-sm flex items-center gap-2 disabled:opacity-50">
+            <button onClick={save} disabled={saving || overBudget} className="px-6 py-2.5 rounded-xl bg-gray-900 text-white font-semibold text-sm flex items-center gap-2 disabled:opacity-50">
               {saving && <Spinner size={16} />} Save changes
             </button>
           </div>

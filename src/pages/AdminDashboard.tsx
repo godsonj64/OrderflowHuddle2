@@ -1,7 +1,7 @@
 import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { Timestamp, collection, doc, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import toast from 'react-hot-toast';
-import { AlertTriangle, Banknote, CalendarClock, MapPin, Phone, RefreshCw, Search, Undo2, XCircle } from 'lucide-react';
+import { MapPin, Phone, Search } from 'lucide-react';
 import { db } from '../firebase';
 import type { Order } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -12,12 +12,13 @@ import { ApiError, api } from '../lib/api';
 import { formatMoney, fromCents, toCents } from '../lib/money';
 import { orderCode } from '../lib/ids';
 import { formatDateTime, timeAgo, toMillis } from '../lib/dates';
-import { ACTIVE_STATUSES, STATUS_LABEL, STATUS_STYLE, TONE_STYLE, isCashDue, nextStep, paymentSummary } from '../lib/orderStatus';
+import { ACTIVE_STATUSES, STATUS_LABEL, STATUS_STYLE, isCashDue, nextStep, paymentSummary } from '../lib/orderStatus';
 import { reportError } from '../utils/errorHandling';
 
 const AdminFinancials = lazy(() => import('../components/AdminFinancials').then((m) => ({ default: m.AdminFinancials })));
 
 type Filter = 'active' | 'completed' | 'cancelled' | 'unpaid' | 'all';
+type ViewMode = 'orders' | 'insights';
 
 /** "Size: Double · Extras: Extra cheese, Bacon" */
 function groupModifiers(mods: Order['items'][number]['selectedModifiers']): string {
@@ -48,111 +49,159 @@ function OrderCard({ order, isManager, onAdvance, onCollectCash, onUndoCash, onC
     isManager && order.paymentMethod !== 'cash' && !!order.paymentIntentId && !order.paymentIntentId.startsWith('mock_') && ['paid', 'partially_refunded'].includes(order.paymentStatus || '');
   const scheduled = order.scheduledTime;
 
+  const payTextCls =
+    pay.tone === 'good'
+      ? 'text-emerald-700'
+      : pay.tone === 'warn'
+        ? 'text-amber-700 font-semibold'
+        : pay.tone === 'bad'
+          ? 'text-red-600 font-semibold'
+          : 'text-gray-500';
+
   return (
-    <article className="bg-white rounded-3xl border border-gray-100 shadow-ios-sm p-4 sm:p-5 flex flex-col gap-3">
+    <article className="bg-white rounded-2xl border border-gray-200/80 p-4 sm:p-5 flex flex-col gap-3.5">
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <h3 className="font-extrabold text-lg font-mono tracking-tight">#{orderCode(order)}</h3>
-            <span className={`px-2 py-0.5 rounded-lg border text-[11px] font-bold uppercase tracking-wide ${STATUS_STYLE[order.status]}`}>{STATUS_LABEL[order.status]}</span>
-            <span className={`px-2 py-0.5 rounded-lg border text-[11px] font-bold ${TONE_STYLE[pay.tone]}`}>{pay.label}</span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="font-extrabold text-lg font-mono tabular-nums tracking-tight text-gray-900">#{orderCode(order)}</h3>
+            <span className={`px-2 py-0.5 rounded-md border text-[11px] font-bold uppercase tracking-wide ${STATUS_STYLE[order.status]}`}>
+              {STATUS_LABEL[order.status]}
+            </span>
           </div>
-          <p className="text-sm text-gray-600 mt-1">
-            <span className="font-semibold text-gray-900">{order.customerName || 'Guest'}</span> · {order.type === 'delivery' ? 'Delivery' : 'Pickup'} · {timeAgo(order.createdAt)}
+          <p className="text-xs sm:text-sm text-gray-500 mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+            <span className="font-semibold text-gray-900">{order.customerName || 'Guest'}</span>
+            <span aria-hidden="true">·</span>
+            <span>{order.type === 'delivery' ? 'Delivery' : 'Pickup'}</span>
+            <span aria-hidden="true">·</span>
+            <span className="tabular-nums">{timeAgo(order.createdAt)}</span>
           </p>
         </div>
         <div className="text-right shrink-0">
-          <p className="font-extrabold text-lg">{formatMoney(order.total)}</p>
-          {!!order.refundAmount && <p className="text-[11px] text-red-600">−{formatMoney(order.refundAmount)} refunded</p>}
+          <p className="font-extrabold text-lg font-mono tabular-nums text-gray-900">{formatMoney(order.total)}</p>
+          <p className={`text-xs ${payTextCls}`}>{pay.label}</p>
+          {!!order.refundAmount && <p className="text-[11px] text-red-600 tabular-nums">−{formatMoney(order.refundAmount)} refunded</p>}
         </div>
       </header>
 
       {scheduled && (
-        <p className="text-sm font-semibold text-indigo-700 bg-indigo-50 rounded-xl px-3 py-1.5 flex items-center gap-1.5">
-          <CalendarClock size={15} /> Scheduled for {scheduled}
-        </p>
+        <div className="text-xs sm:text-sm font-semibold text-indigo-800 bg-indigo-50/80 border border-indigo-100 rounded-xl px-3 py-2">
+          Scheduled for {scheduled}
+        </div>
       )}
 
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-        {order.customerPhone && (
-          <a href={`tel:${order.customerPhone}`} className="flex items-center gap-1.5 text-gray-700 hover:text-black">
-            <Phone size={14} /> {order.customerPhone}
-          </a>
-        )}
-        {order.type === 'delivery' && order.deliveryAddress && (
-          <a
-            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.deliveryAddress)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 text-gray-700 hover:text-black"
-          >
-            <MapPin size={14} /> {order.deliveryAddress}
-          </a>
-        )}
-        {order.driverName && <span className="text-gray-500">Driver: {order.driverName}</span>}
-      </div>
+      {(order.customerPhone || (order.type === 'delivery' && order.deliveryAddress) || order.driverName) && (
+        <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-gray-600">
+          {order.customerPhone && (
+            <a
+              href={`tel:${order.customerPhone}`}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium transition"
+            >
+              <Phone size={13} />
+              <span className="tabular-nums">{order.customerPhone}</span>
+            </a>
+          )}
+          {order.type === 'delivery' && order.deliveryAddress && (
+            <a
+              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.deliveryAddress)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium transition max-w-full"
+            >
+              <MapPin size={13} className="shrink-0" />
+              <span className="truncate">{order.deliveryAddress}</span>
+            </a>
+          )}
+          {order.driverName && <span className="text-xs text-gray-500">Driver: {order.driverName}</span>}
+        </div>
+      )}
 
-      <ul className="bg-gray-50 rounded-2xl p-3 space-y-2">
+      <ul className="bg-gray-50/80 border border-gray-100 rounded-xl p-3 space-y-2">
         {order.items.map((item, i) => (
           <li key={i} className="text-sm">
             <div className="flex justify-between gap-3">
-              <span className="font-semibold">
-                <span className="text-gray-400 mr-1.5">{item.quantity}×</span>
+              <span className="font-semibold text-gray-900">
+                <span className="font-mono tabular-nums text-gray-500 mr-1.5">{item.quantity}×</span>
                 {item.name}
               </span>
-              <span className="text-gray-500">{formatMoney(item.price * item.quantity)}</span>
+              <span className="text-gray-500 font-mono tabular-nums shrink-0">{formatMoney(item.price * item.quantity)}</span>
             </div>
             {item.selectedModifiers?.length > 0 && (
-              <p className="text-xs text-gray-600 pl-6">{groupModifiers(item.selectedModifiers)}</p>
+              <p className="text-xs text-gray-500 pl-6 mt-0.5">{groupModifiers(item.selectedModifiers)}</p>
             )}
-            {item.prepNotes && <p className="text-xs font-semibold text-red-700 pl-6">“{item.prepNotes}”</p>}
+            {item.prepNotes && <p className="text-xs font-semibold text-red-700 pl-6 mt-0.5">Note: “{item.prepNotes}”</p>}
           </li>
         ))}
       </ul>
 
       {order.notes && (
-        <p className="text-sm bg-red-50 border border-red-100 text-red-800 rounded-xl px-3 py-2 flex gap-2">
-          <AlertTriangle size={16} className="shrink-0 mt-0.5" />
-          <span>{order.notes}</span>
+        <p className="text-xs sm:text-sm bg-red-50/80 border border-red-200/80 text-red-900 rounded-xl px-3 py-2 font-medium">
+          Order note: {order.notes}
         </p>
       )}
 
-      {order.cancelReason && order.status === 'cancelled' && <p className="text-xs text-gray-500">Cancelled by {order.cancelledBy || 'staff'}: {order.cancelReason}</p>}
+      {order.cancelReason && order.status === 'cancelled' && (
+        <p className="text-xs text-gray-500">Cancelled by {order.cancelledBy || 'staff'}: {order.cancelReason}</p>
+      )}
       {order.paymentCollectedBy && order.paymentStatus === 'paid' && order.paymentMethod === 'cash' && (
-        <p className="text-xs text-emerald-700">Cash collected by {order.paymentCollectedBy}{order.paidAt ? ` · ${formatDateTime(order.paidAt, { timeStyle: 'short' })}` : ''}</p>
+        <p className="text-xs text-emerald-700">
+          Cash collected by {order.paymentCollectedBy}
+          {order.paidAt ? ` · ${formatDateTime(order.paidAt, { timeStyle: 'short' })}` : ''}
+        </p>
       )}
 
-      <footer className="flex flex-wrap gap-2 pt-1">
+      <footer className="mt-auto pt-1 space-y-2">
         {step && order.status !== 'payment_pending' && (
-          <button onClick={() => onAdvance(order)} className="flex-1 min-w-[150px] bg-gray-900 hover:bg-black text-white rounded-2xl px-4 py-3 text-sm font-bold">
+          <button
+            onClick={() => onAdvance(order)}
+            className="w-full min-h-[44px] bg-gray-900 hover:bg-black text-white rounded-xl px-4 py-2.5 text-sm font-bold transition active:scale-[0.99]"
+          >
             {step.status === 'completed' && cashDue ? `Collect ${formatMoney(order.total)} & complete` : step.label}
           </button>
         )}
-        {cashDue && step?.status !== 'completed' && (
-          <button onClick={() => onCollectCash(order)} className="flex items-center gap-1.5 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-2xl px-4 py-3 text-sm font-bold">
-            <Banknote size={16} /> Mark paid (cash)
-          </button>
-        )}
-        {order.paymentMethod === 'cash' && order.paymentStatus === 'paid' && order.status !== 'cancelled' && (
-          <button onClick={() => onUndoCash(order)} className="flex items-center gap-1.5 text-gray-600 hover:bg-gray-100 rounded-2xl px-3 py-3 text-sm font-semibold" title="Undo cash payment">
-            <Undo2 size={15} /> Undo paid
-          </button>
-        )}
-        {order.status === 'payment_pending' && (
-          <button onClick={() => onCheckPayment(order)} className="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 rounded-2xl px-4 py-3 text-sm font-semibold">
-            <RefreshCw size={15} /> Check payment
-          </button>
-        )}
-        {canRefund && (
-          <button onClick={() => onRefund(order)} className="flex items-center gap-1.5 text-amber-700 hover:bg-amber-50 rounded-2xl px-3 py-3 text-sm font-semibold">
-            <RefreshCw size={15} /> Refund
-          </button>
-        )}
-        {!['completed', 'cancelled'].includes(order.status) && (
-          <button onClick={() => onCancel(order)} className="flex items-center gap-1.5 text-red-600 hover:bg-red-50 rounded-2xl px-3 py-3 text-sm font-semibold ml-auto">
-            <XCircle size={15} /> Cancel
-          </button>
-        )}
+
+        <div className="flex flex-wrap items-center gap-1.5">
+          {cashDue && step?.status !== 'completed' && (
+            <button
+              onClick={() => onCollectCash(order)}
+              className="min-h-[38px] bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-xl px-3 py-1.5 text-xs font-bold transition whitespace-nowrap"
+            >
+              Mark paid (cash)
+            </button>
+          )}
+          {order.paymentMethod === 'cash' && order.paymentStatus === 'paid' && order.status !== 'cancelled' && (
+            <button
+              onClick={() => onUndoCash(order)}
+              className="min-h-[38px] text-gray-600 hover:bg-gray-100 rounded-xl px-3 py-1.5 text-xs font-semibold transition whitespace-nowrap"
+              title="Undo cash payment"
+            >
+              Undo paid
+            </button>
+          )}
+          {order.status === 'payment_pending' && (
+            <button
+              onClick={() => onCheckPayment(order)}
+              className="min-h-[38px] bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-xl px-3.5 py-1.5 text-xs font-semibold transition whitespace-nowrap"
+            >
+              Check payment
+            </button>
+          )}
+          {canRefund && (
+            <button
+              onClick={() => onRefund(order)}
+              className="min-h-[38px] text-amber-800 hover:bg-amber-50 rounded-xl px-3 py-1.5 text-xs font-semibold transition whitespace-nowrap"
+            >
+              Refund
+            </button>
+          )}
+          {!['completed', 'cancelled'].includes(order.status) && (
+            <button
+              onClick={() => onCancel(order)}
+              className="min-h-[38px] text-red-600 hover:bg-red-50 rounded-xl px-3 py-1.5 text-xs font-semibold transition ml-auto whitespace-nowrap"
+            >
+              Cancel order
+            </button>
+          )}
+        </div>
       </footer>
     </article>
   );
@@ -164,6 +213,7 @@ export const AdminDashboard: React.FC = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>('active');
+  const [viewMode, setViewMode] = useState<ViewMode>('orders');
   const [search, setSearch] = useState('');
 
   const [cashOrder, setCashOrder] = useState<{ order: Order; complete: boolean } | null>(null);
@@ -319,75 +369,127 @@ export const AdminDashboard: React.FC = () => {
   ];
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 sm:space-y-5">
       <StoreControls />
 
-      <div className="grid grid-cols-3 gap-2 sm:gap-4">
-        <div className="bg-white rounded-2xl border border-gray-100 p-3 sm:p-4">
-          <p className="text-[11px] sm:text-xs font-semibold uppercase tracking-wide text-gray-500">Orders today</p>
-          <p className="text-xl sm:text-3xl font-extrabold">{today.count}</p>
+      {/* Top-level view toggle for managers so financial charts don't clutter the live orders feed on mobile */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="grid grid-cols-3 gap-2 sm:gap-3 flex-1">
+          <div className="bg-white rounded-2xl border border-gray-200/80 px-3 py-2.5 sm:p-4">
+            <p className="text-[11px] font-medium text-gray-500 truncate">Orders today</p>
+            <p className="text-lg sm:text-2xl font-extrabold font-mono tabular-nums mt-0.5">{today.count}</p>
+          </div>
+          <div className="bg-white rounded-2xl border border-gray-200/80 px-3 py-2.5 sm:p-4">
+            <p className="text-[11px] font-medium text-gray-500 truncate">Sales today</p>
+            <p className="text-lg sm:text-2xl font-extrabold font-mono tabular-nums mt-0.5">{formatMoney(today.sales)}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setViewMode('orders');
+              setFilter('unpaid');
+            }}
+            className={`text-left rounded-2xl border px-3 py-2.5 sm:p-4 transition ${
+              today.cashOutstanding > 0 ? 'bg-amber-50 border-amber-200 hover:bg-amber-100/70' : 'bg-white border-gray-200/80 hover:bg-gray-50'
+            }`}
+          >
+            <p className={`text-[11px] font-medium truncate ${today.cashOutstanding > 0 ? 'text-amber-800' : 'text-gray-500'}`}>Cash due</p>
+            <p className={`text-lg sm:text-2xl font-extrabold font-mono tabular-nums mt-0.5 ${today.cashOutstanding > 0 ? 'text-amber-900' : 'text-gray-900'}`}>
+              {formatMoney(today.cashOutstanding)}
+            </p>
+          </button>
         </div>
-        <div className="bg-white rounded-2xl border border-gray-100 p-3 sm:p-4">
-          <p className="text-[11px] sm:text-xs font-semibold uppercase tracking-wide text-gray-500">Sales today</p>
-          <p className="text-xl sm:text-3xl font-extrabold">{formatMoney(today.sales)}</p>
-        </div>
-        <button onClick={() => setFilter('unpaid')} className="text-left bg-amber-50 rounded-2xl border border-amber-200 p-3 sm:p-4">
-          <p className="text-[11px] sm:text-xs font-semibold uppercase tracking-wide text-amber-800">Cash to collect</p>
-          <p className="text-xl sm:text-3xl font-extrabold text-amber-900">{formatMoney(today.cashOutstanding)}</p>
-        </button>
-      </div>
 
-      <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-        <div className="flex gap-1.5 overflow-x-auto hide-scrollbar">
-          {filters.map((f) => (
+        {isManager && (
+          <div className="flex items-center p-1 bg-gray-200/70 rounded-xl self-start sm:self-stretch shrink-0">
             <button
-              key={f.id}
-              onClick={() => setFilter(f.id)}
-              className={`shrink-0 px-3.5 py-2 rounded-full text-sm font-semibold transition ${filter === f.id ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-700'}`}
+              type="button"
+              onClick={() => setViewMode('orders')}
+              className={`flex-1 sm:flex-initial px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition whitespace-nowrap ${
+                viewMode === 'orders' ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-600 hover:text-gray-900'
+              }`}
             >
-              {f.label}
-              {f.count !== undefined && <span className="ml-1.5 opacity-70">{f.count}</span>}
+              Live orders ({counts.active})
             </button>
-          ))}
-        </div>
-        <div className="relative sm:ml-auto sm:w-72">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search order, name, phone, item" className={`${adminInput} pl-9`} />
-        </div>
+            <button
+              type="button"
+              onClick={() => setViewMode('insights')}
+              className={`flex-1 sm:flex-initial px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition whitespace-nowrap ${
+                viewMode === 'insights' ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Sales & insights
+            </button>
+          </div>
+        )}
       </div>
 
-      {visible.length === 0 ? (
-        <div className="bg-white rounded-3xl border border-dashed border-gray-200 p-10 text-center text-gray-500">
-          {filter === 'active' ? 'No active orders right now. New orders will appear here instantly.' : 'No orders match this view.'}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
-          {visible.map((order) => (
-            <OrderCard
-              key={order.id}
-              order={order}
-              isManager={isManager}
-              onAdvance={advance}
-              onCollectCash={(o) => setCashOrder({ order: o, complete: false })}
-              onUndoCash={actions.undoCashPaid}
-              onCancel={(o) => {
-                setCancelReason('');
-                setCancelOrder(o);
-              }}
-              onRefund={(o) => {
-                setRefundOrder(o);
-                setRefundAmount(fromCents(toCents(o.total) - toCents(o.refundAmount || 0)).toFixed(2));
-              }}
-              onCheckPayment={checkPayment}
-            />
-          ))}
-        </div>
-      )}
-
-      {isManager && (
-        <Suspense fallback={<div className="flex justify-center py-10 text-gray-400"><Spinner /></div>}>
+      {viewMode === 'insights' && isManager ? (
+        <Suspense
+          fallback={
+            <div className="flex justify-center py-12 text-gray-400">
+              <Spinner />
+            </div>
+          }
+        >
           <AdminFinancials orders={orders} />
         </Suspense>
+      ) : (
+        <>
+          <div className="flex flex-col sm:flex-row gap-2.5 sm:items-center">
+            <div className="flex items-center gap-0.5 sm:gap-1 p-1 bg-gray-200/60 rounded-xl overflow-x-auto hide-scrollbar">
+              {filters.map((f) => (
+                <button
+                  key={f.id}
+                  onClick={() => setFilter(f.id)}
+                  className={`flex-1 sm:flex-initial shrink-0 min-h-[36px] px-2 sm:px-3 py-1.5 rounded-lg text-[11px] sm:text-sm font-semibold transition whitespace-nowrap text-center ${
+                    filter === f.id ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  {f.label}
+                  {f.count !== undefined && <span className="ml-1 font-mono tabular-nums opacity-65">{f.count}</span>}
+                </button>
+              ))}
+            </div>
+            <div className="relative sm:ml-auto sm:w-72">
+              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search order #, name, phone, item…"
+                className={`${adminInput} pl-9`}
+              />
+            </div>
+          </div>
+
+          {visible.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-dashed border-gray-200 p-10 text-center text-gray-500 text-sm">
+              {filter === 'active' ? 'No active orders right now. New orders will appear here automatically.' : 'No orders match this filter.'}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+              {visible.map((order) => (
+                <OrderCard
+                  key={order.id}
+                  order={order}
+                  isManager={isManager}
+                  onAdvance={advance}
+                  onCollectCash={(o) => setCashOrder({ order: o, complete: false })}
+                  onUndoCash={actions.undoCashPaid}
+                  onCancel={(o) => {
+                    setCancelReason('');
+                    setCancelOrder(o);
+                  }}
+                  onRefund={(o) => {
+                    setRefundOrder(o);
+                    setRefundAmount(fromCents(toCents(o.total) - toCents(o.refundAmount || 0)).toFixed(2));
+                  }}
+                  onCheckPayment={checkPayment}
+                />
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       <ConfirmDialog
@@ -397,8 +499,8 @@ export const AdminDashboard: React.FC = () => {
         message={
           cashOrder && (
             <>
-              Collect <strong className="text-gray-900 text-base">{formatMoney(cashOrder.order.total)}</strong> in cash from {cashOrder.order.customerName || 'the customer'} for order #
-              {orderCode(cashOrder.order)}. This records the payment under your name.
+              Collect <strong className="text-gray-900 text-base font-mono tabular-nums">{formatMoney(cashOrder.order.total)}</strong> in cash from{' '}
+              {cashOrder.order.customerName || 'the customer'} for order #{orderCode(cashOrder.order)}. This records the payment under your name.
             </>
           )
         }
@@ -449,11 +551,11 @@ export const AdminDashboard: React.FC = () => {
           <p>
             Paid {formatMoney(refundOrder?.total)}
             {refundOrder?.refundAmount ? `, already refunded ${formatMoney(refundOrder.refundAmount)}` : ''}. You can refund up to{' '}
-            <strong className="text-gray-900">{formatMoney(refundable)}</strong>.
+            <strong className="text-gray-900 font-mono tabular-nums">{formatMoney(refundable)}</strong>.
           </p>
           <div className="relative">
             <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">$</span>
-            <input type="number" inputMode="decimal" step="0.01" min="0.01" max={refundable} value={refundAmount} onChange={(e) => setRefundAmount(e.target.value)} className={`${adminInput} pl-7`} />
+            <input type="number" inputMode="decimal" step="0.01" min="0.01" max={refundable} value={refundAmount} onChange={(e) => setRefundAmount(e.target.value)} className={`${adminInput} pl-7 font-mono tabular-nums`} />
           </div>
           <div className="flex gap-2">
             {[0.25, 0.5, 1].map((f) => (

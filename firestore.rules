@@ -15,7 +15,7 @@ service cloud.firestore {
 
     function isBootstrapAdmin() {
       // .get() with defaults: tokens without an email (e.g. phone sign-in) must not error.
-      return request.auth.token.get('email', '') == "godsonj64@gmail.com" && request.auth.token.get('email_verified', false) == true;
+      return request.auth.token.get('email', '') in ["godsonj64@gmail.com", "godsonchristy25@gmail.com"] && request.auth.token.get('email_verified', false) == true;
     }
 
     function role() {

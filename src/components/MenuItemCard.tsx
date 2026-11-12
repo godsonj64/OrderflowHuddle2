@@ -1,57 +1,54 @@
 import React from 'react';
-import { Clock, Flame, Leaf, Plus, Star, UtensilsCrossed, WheatOff } from 'lucide-react';
+import { Plus, UtensilsCrossed } from 'lucide-react';
 import type { MenuItem, MenuLayout } from '../types';
 import type { ResolvedTheme } from '../lib/theme';
 import { formatMoney } from '../lib/money';
 
-const TAG_META: Record<string, { label: string; icon: React.ElementType; cls: string }> = {
-  vegan: { label: 'Vegan', icon: Leaf, cls: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
-  vegetarian: { label: 'Vegetarian', icon: Leaf, cls: 'text-lime-700 bg-lime-50 border-lime-200' },
-  'gluten-free': { label: 'Gluten free', icon: WheatOff, cls: 'text-amber-700 bg-amber-50 border-amber-200' },
-  spicy: { label: 'Spicy', icon: Flame, cls: 'text-red-700 bg-red-50 border-red-200' },
+const TAG_LABELS: Record<string, string> = {
+  vegan: 'Vegan',
+  vegetarian: 'Vegetarian',
+  'gluten-free': 'Gluten-free',
+  spicy: 'Spicy',
 };
 
 export function DietaryBadges({ tags, size = 'sm' }: { tags?: string[]; size?: 'sm' | 'md' }) {
   if (!tags?.length) return null;
   return (
-    <div className="flex flex-wrap gap-1">
-      {tags.map((tag) => {
-        const meta = TAG_META[tag] || { label: tag, icon: Leaf, cls: 'text-muted bg-soft border-line' };
-        const Icon = meta.icon;
-        return (
-          <span
-            key={tag}
-            className={`inline-flex items-center gap-1 rounded-full border font-semibold ${meta.cls} ${size === 'md' ? 'text-xs px-2.5 py-1' : 'text-[10px] px-1.5 py-0.5'}`}
-          >
-            <Icon size={size === 'md' ? 13 : 10} />
-            {meta.label}
+    <div className={`flex flex-wrap items-center gap-x-1.5 gap-y-0.5 font-medium text-muted ${size === 'md' ? 'text-xs' : 'text-[11px]'}`}>
+      {tags.map((tag, i) => (
+        <React.Fragment key={tag}>
+          {i > 0 && <span aria-hidden="true">·</span>}
+          <span className={tag === 'spicy' ? 'text-red-600 font-semibold' : tag === 'vegan' || tag === 'vegetarian' ? 'text-emerald-700 font-semibold' : ''}>
+            {TAG_LABELS[tag] || tag}
           </span>
-        );
-      })}
+        </React.Fragment>
+      ))}
     </div>
   );
 }
 
 export function ItemMeta({ item, theme }: { item: MenuItem; theme: ResolvedTheme }) {
-  const parts: React.ReactNode[] = [];
+  const parts: string[] = [];
   if (theme.showRatings && item.ratingCount && item.ratingCount > 0 && item.rating) {
-    parts.push(
-      <span key="r" className="inline-flex items-center gap-0.5">
-        <Star size={11} className="fill-amber-400 text-amber-400" />
-        {item.rating.toFixed(1)} <span className="opacity-70">({item.ratingCount})</span>
-      </span>,
-    );
+    parts.push(`★ ${item.rating.toFixed(1)} (${item.ratingCount})`);
   }
   if (theme.showPrepTime && item.preparationTime && item.preparationTime > 0) {
-    parts.push(
-      <span key="p" className="inline-flex items-center gap-0.5">
-        <Clock size={11} /> {item.preparationTime} min
-      </span>,
-    );
+    parts.push(`${item.preparationTime} min`);
   }
-  if (theme.showCalories && item.calories && item.calories > 0) parts.push(<span key="c">{item.calories} cal</span>);
+  if (theme.showCalories && item.calories && item.calories > 0) {
+    parts.push(`${item.calories} cal`);
+  }
   if (!parts.length) return null;
-  return <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-muted">{parts}</div>;
+  return (
+    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted tabular-nums">
+      {parts.map((part, i) => (
+        <React.Fragment key={i}>
+          {i > 0 && <span aria-hidden="true">·</span>}
+          <span>{part}</span>
+        </React.Fragment>
+      ))}
+    </div>
+  );
 }
 
 interface CardProps {
@@ -76,7 +73,7 @@ function AddButton({ item, canAdd, onQuickAdd, onOpen, className = '' }: Omit<Ca
       }}
       disabled={disabled}
       aria-label={hasOptions ? `Choose options for ${item.name}` : `Add ${item.name} to cart`}
-      className={`w-9 h-9 rounded-full flex items-center justify-center shadow-md transition active:scale-90 bg-brand text-on-brand disabled:opacity-40 disabled:shadow-none ${className}`}
+      className={`w-9 h-9 rounded-full flex items-center justify-center shadow-sm transition active:scale-90 bg-brand text-on-brand disabled:opacity-40 disabled:shadow-none ${className}`}
     >
       <Plus size={18} strokeWidth={2.5} />
     </button>
@@ -99,14 +96,14 @@ function NameButton({ item, onOpen }: { item: MenuItem; onOpen: (item: MenuItem)
 }
 
 function SoldOutBadge() {
-  return <span className="inline-block text-[10px] font-bold uppercase tracking-wide bg-ink text-page px-2 py-0.5 rounded-full">Sold out</span>;
+  return <span className="inline-block text-[10px] font-bold uppercase tracking-wide bg-ink text-page px-2 py-0.5 rounded-md">Sold out</span>;
 }
 
 function Placeholder({ name }: { name: string }) {
   return (
     <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-soft text-muted">
-      <UtensilsCrossed size={22} className="opacity-60" />
-      <span className="font-display font-bold text-lg opacity-60">{name.charAt(0)}</span>
+      <UtensilsCrossed size={20} className="opacity-50" />
+      <span className="font-display font-bold text-base opacity-50">{name.charAt(0)}</span>
     </div>
   );
 }
@@ -125,16 +122,18 @@ export function MenuItemCard(props: CardProps) {
       >
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-[15px] leading-snug truncate"><NameButton item={item} onOpen={onOpen} /></h3>
+            <h3 className="font-semibold text-[15px] leading-snug truncate">
+              <NameButton item={item} onOpen={onOpen} />
+            </h3>
             {item.isSoldOut && <SoldOutBadge />}
           </div>
           {item.description && <p className="text-xs text-muted line-clamp-1 mt-0.5">{item.description}</p>}
-          <div className="mt-1 flex flex-wrap items-center gap-2">
+          <div className="mt-1">
             <DietaryBadges tags={item.dietaryTags} />
           </div>
         </div>
-        <span className="font-bold text-sm whitespace-nowrap">{fromPrice}</span>
-        <AddButton {...props} className="w-8 h-8" />
+        <span className="font-bold text-sm font-mono tabular-nums whitespace-nowrap">{fromPrice}</span>
+        <AddButton {...props} className="w-9 h-9" />
       </div>
     );
   }
@@ -143,19 +142,19 @@ export function MenuItemCard(props: CardProps) {
     return (
       <div
         onClick={() => onOpen(item)}
-        className={`flex gap-3 p-3 rounded-card bg-card border border-line cursor-pointer hover:shadow-ios transition ${dim}`}
+        className={`flex gap-3 p-3.5 rounded-card bg-card border border-line cursor-pointer hover:shadow-ios transition ${dim}`}
       >
         <div className="min-w-0 flex-1 flex flex-col">
-          <div className="flex items-start gap-2">
-            <h3 className="font-bold text-[15px] leading-snug"><NameButton item={item} onOpen={onOpen} /></h3>
-          </div>
+          <h3 className="font-bold text-[15px] leading-snug">
+            <NameButton item={item} onOpen={onOpen} />
+          </h3>
           {item.description && <p className="text-xs text-muted line-clamp-2 mt-1">{item.description}</p>}
-          <div className="mt-1.5 space-y-1.5">
+          <div className="mt-1.5 space-y-0.5">
             <ItemMeta item={item} theme={theme} />
             <DietaryBadges tags={item.dietaryTags} />
           </div>
           <div className="mt-auto pt-2 flex items-center gap-2">
-            <span className="font-bold text-[15px]">{fromPrice}</span>
+            <span className="font-bold text-[15px] font-mono tabular-nums">{fromPrice}</span>
             {item.isSoldOut && <SoldOutBadge />}
           </div>
         </div>
@@ -197,13 +196,15 @@ export function MenuItemCard(props: CardProps) {
           </span>
         )}
       </div>
-      <div className="p-3 flex-1 flex flex-col gap-1.5">
-        <h3 className="font-bold text-[14px] sm:text-base leading-snug line-clamp-2"><NameButton item={item} onOpen={onOpen} /></h3>
+      <div className="p-3 sm:p-3.5 flex-1 flex flex-col gap-1">
+        <h3 className="font-bold text-[14px] sm:text-base leading-snug line-clamp-2">
+          <NameButton item={item} onOpen={onOpen} />
+        </h3>
         {item.description && <p className="hidden sm:block text-xs text-muted line-clamp-2">{item.description}</p>}
         <ItemMeta item={item} theme={theme} />
         <DietaryBadges tags={item.dietaryTags} />
-        <div className="mt-auto pt-1.5 flex items-center justify-between gap-2">
-          <span className="font-extrabold text-[15px]">{fromPrice}</span>
+        <div className="mt-auto pt-2 flex items-center justify-between gap-2">
+          <span className="font-extrabold text-[15px] font-mono tabular-nums">{fromPrice}</span>
           <AddButton {...props} />
         </div>
       </div>

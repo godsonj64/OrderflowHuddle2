@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
 import toast from 'react-hot-toast';
-import { CalendarClock, Clock, Search, ShoppingBag, Star, Truck, X } from 'lucide-react';
+import { CalendarClock, Search, ShoppingBag, X } from 'lucide-react';
 import type { MenuItem, RestaurantProfile } from '../types';
 import { useStore } from '../context/StoreContext';
 import { useCart } from '../context/CartContext';
@@ -18,44 +18,41 @@ function Hero({ profile, theme, status }: { profile: RestaurantProfile; theme: R
   if (theme.heroStyle === 'none') return null;
   const tagline = theme.tagline || profile.description || '';
   const useImage = theme.heroStyle === 'image' && !!profile.bannerUrl;
-  const height = theme.heroHeight === 'tall' ? 'min-h-[300px] sm:min-h-[440px]' : 'min-h-[190px] sm:min-h-[300px]';
+  const height = theme.heroHeight === 'tall' ? 'min-h-[280px] sm:min-h-[420px]' : 'min-h-[180px] sm:min-h-[280px]';
 
-  const chips: React.ReactNode[] = [];
+  const metaParts: string[] = [];
   if (theme.showRatings && profile.totalRatings && profile.totalRatings > 0 && profile.averageRating) {
-    chips.push(
-      <span key="rating" className="flex items-center gap-1">
-        <Star size={13} className="fill-amber-400 text-amber-400" /> {profile.averageRating.toFixed(1)}
-        <span className="opacity-75">({profile.totalRatings})</span>
-      </span>,
-    );
+    metaParts.push(`★ ${profile.averageRating.toFixed(1)} (${profile.totalRatings})`);
   }
   if (status.canOrderNow) {
-    chips.push(
-      <span key="eta" className="flex items-center gap-1">
-        <Clock size={13} /> Ready in ~{prepMinutes(profile)} min
-      </span>,
-    );
+    metaParts.push(`Ready in ~${prepMinutes(profile)} min`);
   }
   if (profile.isDeliveryEnabled !== false && profile.freeDeliveryThreshold && profile.freeDeliveryThreshold > 0) {
-    chips.push(
-      <span key="free" className="flex items-center gap-1">
-        <Truck size={13} /> Free delivery over {formatMoney(profile.freeDeliveryThreshold)}
-      </span>,
-    );
+    metaParts.push(`Free delivery over ${formatMoney(profile.freeDeliveryThreshold)}`);
   }
+
+  const metaLine = metaParts.length > 0 && (
+    <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs sm:text-sm font-medium opacity-90 tabular-nums">
+      {metaParts.map((part, i) => (
+        <React.Fragment key={i}>
+          {i > 0 && <span aria-hidden="true">·</span>}
+          <span>{part}</span>
+        </React.Fragment>
+      ))}
+    </div>
+  );
 
   if (!useImage) {
     return (
-      <section className={`relative overflow-hidden rounded-card bg-brand text-on-brand px-5 py-7 sm:px-10 sm:py-12 ${theme.heroHeight === 'tall' ? 'sm:py-20' : ''}`}>
-        <div className="absolute -right-10 -top-10 w-48 h-48 rounded-full bg-accent opacity-20 blur-2xl" aria-hidden />
+      <section className={`relative overflow-hidden rounded-card bg-brand text-on-brand px-5 py-6 sm:px-10 sm:py-11 ${theme.heroHeight === 'tall' ? 'sm:py-18' : ''}`}>
         <div className="relative flex items-center gap-4">
-          {profile.logoUrl && <img src={profile.logoUrl} alt="" className="w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover border-4 border-white/20 shrink-0" />}
+          {profile.logoUrl && <img src={profile.logoUrl} alt="" className="w-14 h-14 sm:w-20 sm:h-20 rounded-full object-cover border-2 border-white/20 shrink-0" />}
           <div className="min-w-0">
-            <h1 className="font-display text-2xl sm:text-4xl font-extrabold leading-tight">{profile.name}</h1>
-            {tagline && <p className="mt-1 text-sm sm:text-base opacity-85 line-clamp-2">{tagline}</p>}
+            <h1 className="font-display text-2xl sm:text-4xl font-extrabold leading-tight tracking-tight">{profile.name}</h1>
+            {tagline && <p className="mt-1 text-xs sm:text-base opacity-85 line-clamp-2">{tagline}</p>}
+            {metaLine}
           </div>
         </div>
-        {chips.length > 0 && <div className="relative mt-4 flex flex-wrap gap-2 text-xs font-semibold">{chips.map((c, i) => <span key={i} className="bg-black/15 rounded-full px-3 py-1.5">{c}</span>)}</div>}
       </section>
     );
   }
@@ -63,20 +60,11 @@ function Hero({ profile, theme, status }: { profile: RestaurantProfile; theme: R
   return (
     <section className={`relative overflow-hidden rounded-card text-white flex items-end ${height}`}>
       <img src={profile.bannerUrl} alt="" className="absolute inset-0 w-full h-full object-cover" fetchPriority="high" />
-      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" style={{ opacity: Math.max(0.15, theme.heroOverlay / 100 + 0.25) }} />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/45 to-transparent" style={{ opacity: Math.max(0.25, theme.heroOverlay / 100 + 0.25) }} />
       <div className="relative w-full p-5 sm:p-10">
-        <h1 className="font-display text-3xl sm:text-5xl md:text-6xl font-extrabold leading-tight drop-shadow">{profile.name}</h1>
-        {theme.showPoweredBy && <div className="text-[9px] sm:text-xs uppercase tracking-[0.2em] opacity-75 mt-1">Powered by OrderFlow</div>}
-        {tagline && <p className="mt-2 text-sm sm:text-lg max-w-xl opacity-95 line-clamp-2">{tagline}</p>}
-        {chips.length > 0 && (
-          <div className="mt-4 flex flex-wrap gap-2 text-xs sm:text-sm font-semibold">
-            {chips.map((c, i) => (
-              <span key={i} className="bg-white/20 backdrop-blur-md rounded-full px-3 py-1.5">
-                {c}
-              </span>
-            ))}
-          </div>
-        )}
+        <h1 className="font-display text-2xl sm:text-5xl font-extrabold leading-tight tracking-tight drop-shadow">{profile.name}</h1>
+        {tagline && <p className="mt-1.5 text-xs sm:text-lg max-w-xl opacity-95 line-clamp-2">{tagline}</p>}
+        {metaLine}
       </div>
     </section>
   );

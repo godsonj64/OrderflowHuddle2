@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { collection, doc, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
 import toast from 'react-hot-toast';
-import { AlertTriangle, Banknote, Ban, CalendarClock, ChefHat, CheckCircle2, Clock, Maximize, Package, Sun, Truck, Utensils } from 'lucide-react';
+import { Maximize, Sun } from 'lucide-react';
 import { db } from '../firebase';
 import type { Order, OrderStatus } from '../types';
 import { useStore } from '../context/StoreContext';
@@ -16,11 +16,11 @@ import { formatTimeLabel } from '../lib/hours';
 import { prepMinutes } from '../lib/storeStatus';
 import { friendlyError, reportError } from '../utils/errorHandling';
 
-const COLUMNS: { id: OrderStatus; title: string; icon: React.ElementType; accent: string }[] = [
-  { id: 'new', title: 'New', icon: Package, accent: 'border-sky-500/40' },
-  { id: 'confirmed', title: 'To prepare', icon: ChefHat, accent: 'border-yellow-500/40' },
-  { id: 'preparing', title: 'Cooking', icon: Utensils, accent: 'border-orange-500/40' },
-  { id: 'ready', title: 'Ready', icon: CheckCircle2, accent: 'border-emerald-500/40' },
+const COLUMNS: { id: OrderStatus; title: string; shortTitle: string; accent: string }[] = [
+  { id: 'new', title: 'New', shortTitle: 'New', accent: 'border-sky-500/35' },
+  { id: 'confirmed', title: 'To prepare', shortTitle: 'Prep', accent: 'border-yellow-500/35' },
+  { id: 'preparing', title: 'Cooking', shortTitle: 'Cooking', accent: 'border-orange-500/35' },
+  { id: 'ready', title: 'Ready', shortTitle: 'Ready', accent: 'border-emerald-500/35' },
 ];
 
 /** When the ticket is due: the scheduled time, or order time + prep time for ASAP orders. */
@@ -51,72 +51,74 @@ function Ticket({
   const elapsed = Math.max(0, Math.floor((now - toMillis(order.createdAt, now)) / 60_000));
 
   let timerCls = 'text-emerald-300 bg-emerald-400/10';
-  let timerText = `${elapsed} min`;
+  let timerText = `${elapsed}m`;
   if (scheduled && minsToDue > 30) {
     timerCls = 'text-sky-300 bg-sky-400/10';
     timerText = `Due ${formatTimeLabel(scheduled, timeZone)}`;
   } else if (minsToDue < 0) {
-    timerCls = 'text-red-300 bg-red-500/15 animate-pulse';
-    timerText = `${-minsToDue} min late`;
+    timerCls = 'text-red-300 bg-red-500/20';
+    timerText = `${-minsToDue}m late`;
   } else if (minsToDue <= 5) {
-    timerCls = 'text-yellow-300 bg-yellow-400/10';
-    timerText = scheduled ? `Due in ${minsToDue} min` : `${elapsed} min`;
+    timerCls = 'text-yellow-300 bg-yellow-400/15';
+    timerText = scheduled ? `In ${minsToDue}m` : `${elapsed}m`;
   }
 
   const waitingForDriver = order.type === 'delivery' && order.status === 'ready';
 
   return (
-    <article className="bg-[#0B0E0B] rounded-2xl border border-[#384738] overflow-hidden flex flex-col">
-      <header className="px-3.5 py-3 bg-[#1A211A] border-b border-[#293429] flex items-start justify-between gap-2">
+    <article className="bg-[#0B0E0B] rounded-2xl border border-[#2F3C2F] overflow-hidden flex flex-col">
+      <header className="px-3.5 py-3 bg-[#151B15] border-b border-[#232D23] flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 className="text-xl font-extrabold font-mono tracking-tight text-[#F2EBE1]">#{orderCode(order)}</h3>
-          <div className="flex flex-wrap items-center gap-1.5 mt-1">
-            <span
-              className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
-                order.type === 'delivery' ? 'bg-blue-500/10 text-blue-300 border-blue-500/30' : 'bg-purple-500/10 text-purple-300 border-purple-500/30'
-              }`}
-            >
+          <h3 className="text-lg sm:text-xl font-extrabold font-mono tabular-nums tracking-tight text-[#F2EBE1]">#{orderCode(order)}</h3>
+          <p className="text-xs text-[#9BA89B] mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+            <span className={order.type === 'delivery' ? 'text-sky-300 font-semibold' : 'text-[#EADDC5] font-semibold'}>
               {order.type === 'delivery' ? 'Delivery' : 'Pickup'}
             </span>
             {cashDue && (
-              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-300 border border-amber-400/30 flex items-center gap-1">
-                <Banknote size={11} /> Cash {formatMoney(order.total)}
-              </span>
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="text-amber-300 font-semibold tabular-nums">Cash {formatMoney(order.total)}</span>
+              </>
             )}
-            <span className="text-xs text-[#9BA89B] truncate max-w-[140px]">{order.customerName}</span>
-          </div>
+            {order.customerName && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="truncate max-w-[130px]">{order.customerName}</span>
+              </>
+            )}
+          </p>
         </div>
-        <span className={`shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold tabular-nums ${timerCls}`}>
-          {scheduled && minsToDue > 30 ? <CalendarClock size={13} /> : <Clock size={13} />}
+        <span className={`shrink-0 px-2 py-1 rounded-lg text-xs font-bold font-mono tabular-nums ${timerCls}`}>
           {timerText}
         </span>
       </header>
 
-      <ul className="p-3.5 space-y-3 flex-1">
+      <ul className="p-3.5 space-y-2.5 flex-1">
         {order.items.map((item, i) => (
           <li key={i} className="flex gap-2.5">
-            <span className="w-8 h-8 rounded-lg bg-[#293429] text-[#F2EBE1] font-extrabold flex items-center justify-center shrink-0">{item.quantity}</span>
+            <span className="w-7 h-7 rounded-lg bg-[#232D23] text-[#F2EBE1] font-mono tabular-nums text-xs font-extrabold flex items-center justify-center shrink-0">
+              {item.quantity}×
+            </span>
             <div className="min-w-0">
-              <p className="font-semibold text-[#F2EBE1] leading-tight">{item.name}</p>
+              <p className="font-semibold text-sm text-[#F2EBE1] leading-snug">{item.name}</p>
               {item.selectedModifiers?.length > 0 && (
-                <ul className="mt-1 flex flex-wrap gap-1">
-                  {item.selectedModifiers.map((m, j) => (
-                    <li key={j} className="text-[11px] font-semibold text-[#EADDC5] bg-[#384738] px-1.5 py-0.5 rounded-md">
-                      {m.name}
-                    </li>
-                  ))}
-                </ul>
+                <p className="mt-0.5 text-xs text-[#EADDC5]/85 leading-relaxed">
+                  {item.selectedModifiers.map((m) => m.name).join(' · ')}
+                </p>
               )}
-              {item.prepNotes && <p className="mt-1.5 text-xs font-semibold text-red-300 bg-red-500/10 border border-red-500/20 px-2 py-1 rounded-md">{item.prepNotes}</p>}
+              {item.prepNotes && (
+                <p className="mt-1 text-xs font-semibold text-red-300 bg-red-500/10 border border-red-500/20 px-2 py-1 rounded-md">
+                  “{item.prepNotes}”
+                </p>
+              )}
             </div>
           </li>
         ))}
       </ul>
 
       {order.notes && (
-        <div className="mx-3.5 mb-3 text-sm font-semibold text-red-200 bg-red-500/15 border border-red-500/30 rounded-xl px-3 py-2 flex gap-2">
-          <AlertTriangle size={16} className="shrink-0 mt-0.5" />
-          <span>{order.notes}</span>
+        <div className="mx-3.5 mb-3 text-xs font-semibold text-red-200 bg-red-500/15 border border-red-500/30 rounded-xl px-3 py-2">
+          Note: {order.notes}
         </div>
       )}
 
@@ -124,13 +126,13 @@ function Ticket({
         <div className="p-3.5 pt-0">
           <button
             onClick={() => onAction(order)}
-            className={`w-full py-3.5 rounded-xl font-extrabold text-sm uppercase tracking-wider transition active:scale-[0.98] ${
+            className={`w-full min-h-[44px] py-3 rounded-xl font-extrabold text-xs sm:text-sm uppercase tracking-wider transition active:scale-[0.98] ${
               order.status === 'new' ? 'bg-sky-500 text-white' : order.status === 'ready' ? 'bg-emerald-500 text-white' : 'bg-[#EADDC5] text-[#0B0E0B]'
             }`}
           >
             {step.status === 'completed' && cashDue ? `Collect ${formatMoney(order.total)} & done` : waitingForDriver && order.driverName ? `Hand to ${order.driverName}` : step.label}
           </button>
-          {waitingForDriver && !order.driverName && <p className="text-[11px] text-center text-[#9BA89B] mt-1.5 flex items-center justify-center gap-1"><Truck size={12} /> Waiting for a driver</p>}
+          {waitingForDriver && !order.driverName && <p className="text-[11px] text-center text-[#9BA89B] mt-1.5">Waiting for driver assignment</p>}
         </div>
       )}
     </article>
@@ -227,58 +229,81 @@ export const KitchenDashboard: React.FC = () => {
   const soldOutCount = items.filter((i) => i.active && i.isSoldOut).length;
 
   return (
-    <div className="bg-[#0B0E0B] text-[#F2EBE1] min-h-[calc(100dvh-104px)] p-3 sm:p-5 lg:p-6 space-y-4">
+    <div className="bg-[#0B0E0B] text-[#F2EBE1] min-h-[calc(100dvh-56px)] p-3 sm:p-5 lg:p-6 space-y-3.5">
       <div className="flex flex-wrap items-center gap-2 justify-between">
         <div>
-          <h1 className="text-2xl font-extrabold tracking-tight">Kitchen</h1>
-          <p className="text-sm text-[#9BA89B]">{orders.length} open tickets · target {prep} min</p>
+          <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">Kitchen display</h1>
+          <p className="text-xs sm:text-sm text-[#9BA89B] tabular-nums">{orders.length} open tickets · target {prep} min</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button onClick={() => setStockOpen(true)} className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-semibold bg-[#293429] hover:bg-[#384738]">
-            <Ban size={16} /> Sold out {soldOutCount > 0 && <span className="bg-red-500 text-white rounded-full px-1.5 text-xs">{soldOutCount}</span>}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setStockOpen(true)}
+            className="min-h-[40px] flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs sm:text-sm font-semibold bg-[#232D23] hover:bg-[#2F3C2F] transition whitespace-nowrap"
+          >
+            <span>86 / Sold out</span>
+            {soldOutCount > 0 && <span className="bg-red-500 text-white rounded-full px-1.5 py-0.5 text-[11px] font-mono tabular-nums">{soldOutCount}</span>}
           </button>
           {wake.supported && (
-            <button onClick={wake.toggle} className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-semibold ${wake.on ? 'bg-emerald-600 text-white' : 'bg-[#293429] hover:bg-[#384738]'}`}>
-              <Sun size={16} /> {wake.on ? 'Screen stays on' : 'Keep screen on'}
+            <button
+              onClick={wake.toggle}
+              className={`min-h-[40px] flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs sm:text-sm font-semibold transition whitespace-nowrap ${
+                wake.on ? 'bg-emerald-600 text-white' : 'bg-[#232D23] hover:bg-[#2F3C2F]'
+              }`}
+            >
+              <Sun size={15} />
+              <span className="hidden sm:inline">{wake.on ? 'Screen awake' : 'Keep awake'}</span>
             </button>
           )}
-          <button onClick={fullscreen} className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-semibold bg-[#293429] hover:bg-[#384738]" aria-label="Full screen">
-            <Maximize size={16} />
+          <button
+            onClick={fullscreen}
+            className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl bg-[#232D23] hover:bg-[#2F3C2F] transition"
+            aria-label="Full screen"
+          >
+            <Maximize size={15} />
           </button>
         </div>
       </div>
 
       <StoreControls dark />
 
-      {/* Phones: one column at a time */}
-      <div className="lg:hidden flex gap-1.5 overflow-x-auto hide-scrollbar">
+      {/* Phones: 4-column segmented stage switcher — all stages visible at once */}
+      <div className="lg:hidden grid grid-cols-4 gap-1 p-1 bg-[#151B15] border border-[#232D23] rounded-xl">
         {COLUMNS.map((c) => {
           const n = byColumn.get(c.id)?.length || 0;
+          const active = tab === c.id;
           return (
             <button
               key={c.id}
               onClick={() => setTab(c.id)}
-              className={`shrink-0 flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-bold ${tab === c.id ? 'bg-[#EADDC5] text-[#0B0E0B]' : 'bg-[#1A211A] text-[#F2EBE1]'}`}
+              className={`min-h-[40px] flex items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-bold transition whitespace-nowrap ${
+                active ? 'bg-[#EADDC5] text-[#0B0E0B]' : 'text-[#9BA89B] hover:text-[#F2EBE1]'
+              }`}
             >
-              {c.title}
-              <span className={`min-w-5 px-1.5 rounded-full text-xs ${n && c.id === 'new' ? 'bg-red-500 text-white' : 'bg-black/20'}`}>{n}</span>
+              <span>{c.shortTitle}</span>
+              <span
+                className={`min-w-4 h-4 px-1 rounded-full text-[10px] font-mono tabular-nums flex items-center justify-center ${
+                  n && c.id === 'new' ? 'bg-red-500 text-white' : active ? 'bg-black/15 text-[#0B0E0B]' : 'bg-white/10 text-[#F2EBE1]'
+                }`}
+              >
+                {n}
+              </span>
             </button>
           );
         })}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-3.5 items-start">
         {COLUMNS.map((col) => {
           const list = byColumn.get(col.id) || [];
-          const Icon = col.icon;
           return (
-            <section key={col.id} className={`${tab === col.id ? '' : 'hidden'} lg:block bg-[#1A211A] rounded-2xl border ${col.accent} p-2.5 sm:p-3`}>
-              <h2 className="hidden lg:flex items-center gap-2 px-1 pb-3 font-bold">
-                <Icon size={18} /> {col.title} <span className="ml-auto text-xs text-[#9BA89B]">{list.length}</span>
+            <section key={col.id} className={`${tab === col.id ? '' : 'hidden'} lg:block bg-[#151B15] rounded-2xl border ${col.accent} p-3`}>
+              <h2 className="hidden lg:flex items-center justify-between px-1 pb-3 text-sm font-bold tracking-wide text-[#F2EBE1]">
+                <span>{col.title}</span>
+                <span className="text-xs font-mono tabular-nums text-[#9BA89B]">{list.length}</span>
               </h2>
               <div className="space-y-3">
                 {list.length === 0 ? (
-                  <p className="text-center text-sm text-[#6B7D6B] border border-dashed border-[#384738] rounded-xl py-8">No tickets</p>
+                  <p className="text-center text-xs text-[#6B7D6B] border border-dashed border-[#293429] rounded-xl py-8">No tickets in {col.title.toLowerCase()}</p>
                 ) : (
                   list.map((o) => <Ticket key={o.id} order={o} now={now} prep={prep} timeZone={status.timeZone} onAction={onAction} />)
                 )}
@@ -314,7 +339,7 @@ export const KitchenDashboard: React.FC = () => {
         message={
           cashOrder && (
             <>
-              Collect <strong className="text-gray-900 text-base">{formatMoney(cashOrder.total)}</strong> from {cashOrder.customerName || 'the customer'} before handing over order #{orderCode(cashOrder)}.
+              Collect <strong className="text-gray-900 text-base font-mono tabular-nums">{formatMoney(cashOrder.total)}</strong> from {cashOrder.customerName || 'the customer'} before handing over order #{orderCode(cashOrder)}.
             </>
           )
         }
