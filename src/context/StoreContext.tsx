@@ -99,14 +99,34 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Re-evaluate "open now" every 30 seconds.
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') setNow(Date.now());
+    }, 30_000);
     return () => window.clearInterval(timer);
   }, []);
 
   const theme = useMemo(() => resolveTheme(profile?.theme), [profile?.theme]);
   useEffect(() => ensureFontLoaded(theme.font), [theme.font]);
 
-  const status = useMemo(() => getStoreStatus(profile, new Date(now)), [profile, now]);
+  const prevStatusRef = React.useRef<StoreStatus | null>(null);
+  const status = useMemo(() => {
+    const next = getStoreStatus(profile, new Date(now));
+    const prev = prevStatusRef.current;
+    if (
+      prev &&
+      prev.state === next.state &&
+      prev.canOrderNow === next.canOrderNow &&
+      prev.canSchedule === next.canSchedule &&
+      prev.badge === next.badge &&
+      prev.detail === next.detail &&
+      prev.timeZone === next.timeZone &&
+      prev.pausedUntil?.getTime() === next.pausedUntil?.getTime()
+    ) {
+      return prev;
+    }
+    prevStatusRef.current = next;
+    return next;
+  }, [profile, now]);
 
   const catalog = useMemo<Catalog>(() => {
     const activeCategoryIds = new Set(categories.filter((c) => c.active !== false).map((c) => c.id));

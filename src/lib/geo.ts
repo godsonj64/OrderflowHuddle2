@@ -132,39 +132,70 @@ export function shouldPublishGpsUpdate(
   return elapsed >= 30_000 && movedMeters >= 3;
 }
 
-// In-memory geocode cache so repeated renders never re-query Nominatim for the same address.
-const geocodeCache = new Map<string, GeoPoint | null>();
+/**
+ * Computes a quantized ~20m grid key for two endpoints so tiny GPS jitter
+ * does not trigger redundant OSRM routing requests during rush hour.
+ */
+export function routeCacheKey(from: GeoPoint, to: GeoPoint): string {
+  const q = (n: number) => (Math.round(n * 5000) / 5000).toFixed(4);
+  return `${q(from.lat)},${q(from.lng)}->${q(to.lat)},${q(to.lng)}`;
+}
 
-/** Forward-geocodes a street address using OpenStreetMap Nominatim. */
+// Bounded in-memory caches & in-flight deduplication maps to prevent network storms.
+const MAX_CACHE_ENTRIES = 250;
+const geocodeCache = new Map<string, GeoPoint | null>();
+const geocodeInFlight = new Map<string, Promise<GeoPoint | null>>();
+const routeCache = new Map<string, { at: number; route: RouteGeometry }>();
+const routeInFlight = new Map<string, Promise<RouteGeometry | null>>();
+const ROUTE_TTL_MS = 20_000;
+
+function trimMap<K, V>(map: Map<K, V>, max = MAX_CACHE_ENTRIES) {
+  if (map.size <= max) return;
+  const firstKey = map.keys().next().value;
+  if (firstKey !== undefined) map.delete(firstKey);
+}
+
+/** Forward-geocodes a street address using OpenStreetMap Nominatim with caching & deduplication. */
 export async function geocodeAddressNominatim(address: string, signal?: AbortSignal): Promise<GeoPoint | null> {
   const key = address.trim().toLowerCase();
   if (key.length < 4) return null;
   if (geocodeCache.has(key)) return geocodeCache.get(key) ?? null;
+  const existing = geocodeInFlight.get(key);
+  if (existing) return existing;
 
-  try {
-    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(address.trim())}`;
-    const res = await fetch(url, {
-      signal,
-      headers: { Accept: 'application/json' },
-    });
-    if (!res.ok) return null;
-    const data = (await res.json()) as Array<{ lat?: string; lon?: string; display_name?: string }>;
-    const first = data?.[0];
-    if (!first?.lat || !first?.lon) {
-      geocodeCache.set(key, null);
+  const promise = (async () => {
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(address.trim())}`;
+      const res = await fetch(url, {
+        signal,
+        headers: { Accept: 'application/json' },
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as Array<{ lat?: string; lon?: string; display_name?: string }>;
+      const first = data?.[0];
+      if (!first?.lat || !first?.lon) {
+        trimMap(geocodeCache);
+        geocodeCache.set(key, null);
+        return null;
+      }
+      const point = sanitizeGeoPoint({
+        lat: Number(first.lat),
+        lng: Number(first.lon),
+        updatedAt: Date.now(),
+        label: first.display_name,
+      });
+      trimMap(geocodeCache);
+      geocodeCache.set(key, point);
+      return point;
+    } catch {
       return null;
+    } finally {
+      geocodeInFlight.delete(key);
     }
-    const point = sanitizeGeoPoint({
-      lat: Number(first.lat),
-      lng: Number(first.lon),
-      updatedAt: Date.now(),
-      label: first.display_name,
-    });
-    geocodeCache.set(key, point);
-    return point;
-  } catch {
-    return null;
-  }
+  })();
+
+  geocodeInFlight.set(key, promise);
+  return promise;
 }
 
 /** Reverse-geocodes WGS84 coordinates into a readable street address using OpenStreetMap Nominatim. */
@@ -204,7 +235,7 @@ export async function reverseGeocodeNominatim(lat: number, lng: number, signal?:
   }
 }
 
-/** Fetches road route geometry and drive duration between two points from OSRM (OpenStreetMap Routing Machine). */
+/** Fetches road route geometry and drive duration between two points from OSRM with grid caching. */
 export async function fetchOsrmRoute(from: GeoPoint, to: GeoPoint, signal?: AbortSignal): Promise<RouteGeometry | null> {
   if (!isValidGeoPoint(from) || !isValidGeoPoint(to)) return null;
   const straightKm = haversineDistanceKm(from, to);
@@ -218,27 +249,46 @@ export async function fetchOsrmRoute(from: GeoPoint, to: GeoPoint, signal?: Abor
       durationMin: 1,
     };
   }
-  try {
-    const coords = `${from.lng.toFixed(6)},${from.lat.toFixed(6)};${to.lng.toFixed(6)},${to.lat.toFixed(6)}`;
-    const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`;
-    const res = await fetch(url, { signal, headers: { Accept: 'application/json' } });
-    if (!res.ok) return null;
-    const data = (await res.json()) as {
-      routes?: Array<{
-        distance?: number;
-        duration?: number;
-        geometry?: { coordinates?: [number, number][] };
-      }>;
-    };
-    const route = data?.routes?.[0];
-    const rawCoords = route?.geometry?.coordinates;
-    if (!route || !Array.isArray(rawCoords) || rawCoords.length < 2) return null;
-    const coordinates: [number, number][] = rawCoords.map(([lng, lat]) => [lat, lng]);
-    const distanceKm = typeof route.distance === 'number' ? route.distance / 1000 : straightKm * 1.3;
-    const durationMin =
-      typeof route.duration === 'number' ? Math.max(1, Math.ceil(route.duration / 60)) : estimateDriveMinutes(distanceKm, null, true);
-    return { coordinates, distanceKm, durationMin };
-  } catch {
-    return null;
+
+  const key = routeCacheKey(from, to);
+  const cached = routeCache.get(key);
+  if (cached && Date.now() - cached.at < ROUTE_TTL_MS) {
+    return cached.route;
   }
+  const inflight = routeInFlight.get(key);
+  if (inflight) return inflight;
+
+  const promise = (async () => {
+    try {
+      const coords = `${from.lng.toFixed(6)},${from.lat.toFixed(6)};${to.lng.toFixed(6)},${to.lat.toFixed(6)}`;
+      const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`;
+      const res = await fetch(url, { signal, headers: { Accept: 'application/json' } });
+      if (!res.ok) return null;
+      const data = (await res.json()) as {
+        routes?: Array<{
+          distance?: number;
+          duration?: number;
+          geometry?: { coordinates?: [number, number][] };
+        }>;
+      };
+      const route = data?.routes?.[0];
+      const rawCoords = route?.geometry?.coordinates;
+      if (!route || !Array.isArray(rawCoords) || rawCoords.length < 2) return null;
+      const coordinates: [number, number][] = rawCoords.map(([lng, lat]) => [lat, lng]);
+      const distanceKm = typeof route.distance === 'number' ? route.distance / 1000 : straightKm * 1.3;
+      const durationMin =
+        typeof route.duration === 'number' ? Math.max(1, Math.ceil(route.duration / 60)) : estimateDriveMinutes(distanceKm, null, true);
+      const result: RouteGeometry = { coordinates, distanceKm, durationMin };
+      trimMap(routeCache);
+      routeCache.set(key, { at: Date.now(), route: result });
+      return result;
+    } catch {
+      return null;
+    } finally {
+      routeInFlight.delete(key);
+    }
+  })();
+
+  routeInFlight.set(key, promise);
+  return promise;
 }

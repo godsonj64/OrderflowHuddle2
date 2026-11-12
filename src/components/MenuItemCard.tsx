@@ -108,7 +108,7 @@ function Placeholder({ name }: { name: string }) {
   );
 }
 
-export function MenuItemCard(props: CardProps) {
+export const MenuItemCard = React.memo<CardProps>(function MenuItemCard(props: CardProps) {
   const { item, theme, layout, onOpen } = props;
   const price = formatMoney(item.basePrice);
   const fromPrice = item.modifierGroups?.some((g) => g.modifiers.some((m) => m.price > 0)) ? `From ${price}` : price;
@@ -210,4 +210,4 @@ export function MenuItemCard(props: CardProps) {
       </div>
     </div>
   );
-}
+});

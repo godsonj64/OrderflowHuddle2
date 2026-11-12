@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { collection, doc, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import { Maximize, Sun } from 'lucide-react';
@@ -30,7 +30,7 @@ function dueTime(order: Order, prep: number): number {
   return toMillis(order.createdAt, Date.now()) + prep * 60_000;
 }
 
-function Ticket({
+const Ticket = React.memo(function Ticket({
   order,
   now,
   prep,
@@ -137,7 +137,7 @@ function Ticket({
       )}
     </article>
   );
-}
+});
 
 function useWakeLock() {
   const [wanted, setWanted] = useState(false);
@@ -189,8 +189,17 @@ export const KitchenDashboard: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const t = window.setInterval(() => setNow(Date.now()), 10_000);
-    return () => window.clearInterval(t);
+    const tick = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        setNow(Date.now());
+      }
+    };
+    const t = window.setInterval(tick, 10_000);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      window.clearInterval(t);
+      document.removeEventListener('visibilitychange', tick);
+    };
   }, []);
 
   const byColumn = useMemo(() => {
@@ -201,15 +210,18 @@ export const KitchenDashboard: React.FC = () => {
     return map;
   }, [orders, prep]);
 
-  const onAction = (order: Order) => {
-    const step = nextStep(order);
-    if (!step) return;
-    if (step.status === 'completed' && isCashDue(order)) {
-      setCashOrder(order);
-      return;
-    }
-    actions.setStatus(order, step.status);
-  };
+  const onAction = useCallback(
+    (order: Order) => {
+      const step = nextStep(order);
+      if (!step) return;
+      if (step.status === 'completed' && isCashDue(order)) {
+        setCashOrder(order);
+        return;
+      }
+      actions.setStatus(order, step.status);
+    },
+    [actions],
+  );
 
   const toggleSoldOut = async (id: string, value: boolean) => {
     try {

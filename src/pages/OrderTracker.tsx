@@ -110,11 +110,12 @@ export const OrderTracker: React.FC = () => {
     return () => unsub();
   }, [orderId, user, authLoading]);
 
-  // Poll real-time GPS location endpoint while order is active
+  // Poll real-time GPS location endpoint while order is active and tab is visible
   useEffect(() => {
     if (!order || ['completed', 'cancelled', 'payment_pending'].includes(order.status)) return;
     let active = true;
     const pull = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
       api
         .getOrderLocation(order.id)
         .then((res) => {
@@ -126,9 +127,11 @@ export const OrderTracker: React.FC = () => {
     };
     pull();
     const timer = window.setInterval(pull, 4000);
+    document.addEventListener('visibilitychange', pull);
     return () => {
       active = false;
       window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', pull);
     };
   }, [order?.id, order?.status]);
 

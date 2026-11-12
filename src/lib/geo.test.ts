@@ -6,6 +6,7 @@ import {
   formatDistance,
   haversineDistanceKm,
   isValidGeoPoint,
+  routeCacheKey,
   sanitizeGeoPoint,
   shouldPublishGpsUpdate,
 } from './geo';
@@ -89,3 +90,11 @@ test('shouldPublishGpsUpdate throttles tiny or rapid updates', () => {
     true,
   );
 });
+
+test('routeCacheKey quantizes tiny GPS jitter into the same cache key', () => {
+  const a1 = { lat: 37.774901, lng: -122.419401 };
+  const a2 = { lat: 37.774904, lng: -122.419403 };
+  const dest = { lat: 37.7849, lng: -122.4094 };
+  assert.equal(routeCacheKey(a1, dest), routeCacheKey(a2, dest));
+});
+

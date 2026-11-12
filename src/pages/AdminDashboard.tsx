@@ -1,5 +1,5 @@
-import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
-import { Timestamp, collection, doc, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
+import { Timestamp, collection, doc, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import { MapPin, Phone, Search } from 'lucide-react';
 import { db } from '../firebase';
@@ -19,6 +19,8 @@ const AdminFinancials = lazy(() => import('../components/AdminFinancials').then(
 
 type Filter = 'active' | 'completed' | 'cancelled' | 'unpaid' | 'all';
 type ViewMode = 'orders' | 'insights';
+
+const PAGE_SIZE = 40;
 
 /** "Size: Double · Extras: Extra cheese, Bacon" */
 function groupModifiers(mods: Order['items'][number]['selectedModifiers']): string {
@@ -41,7 +43,16 @@ interface CardProps {
   onCheckPayment: (order: Order) => void;
 }
 
-function OrderCard({ order, isManager, onAdvance, onCollectCash, onUndoCash, onCancel, onRefund, onCheckPayment }: CardProps) {
+const OrderCard = React.memo<CardProps>(function OrderCard({
+  order,
+  isManager,
+  onAdvance,
+  onCollectCash,
+  onUndoCash,
+  onCancel,
+  onRefund,
+  onCheckPayment,
+}) {
   const step = nextStep(order);
   const pay = paymentSummary(order);
   const cashDue = isCashDue(order);
@@ -205,7 +216,7 @@ function OrderCard({ order, isManager, onAdvance, onCollectCash, onUndoCash, onC
       </footer>
     </article>
   );
-}
+});
 
 export const AdminDashboard: React.FC = () => {
   const { isManager } = useAuth();
@@ -215,6 +226,7 @@ export const AdminDashboard: React.FC = () => {
   const [filter, setFilter] = useState<Filter>('active');
   const [viewMode, setViewMode] = useState<ViewMode>('orders');
   const [search, setSearch] = useState('');
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const [cashOrder, setCashOrder] = useState<{ order: Order; complete: boolean } | null>(null);
   const [cancelOrder, setCancelOrder] = useState<Order | null>(null);
@@ -224,10 +236,14 @@ export const AdminDashboard: React.FC = () => {
   const [working, setWorking] = useState(false);
 
   useEffect(() => {
-    // Live window of the last 30 days (single-field range query: no composite index).
+    setVisibleCount(PAGE_SIZE);
+  }, [filter, search]);
+
+  useEffect(() => {
+    // Live window of the last 30 days (bounded to 500 recent orders so rush-hour volume stays fast).
     const since = Timestamp.fromMillis(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const unsub = onSnapshot(
-      query(collection(db, 'orders'), where('createdAt', '>=', since), orderBy('createdAt', 'desc')),
+      query(collection(db, 'orders'), where('createdAt', '>=', since), orderBy('createdAt', 'desc'), limit(500)),
       (snap) => {
         setOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Order));
         setLoading(false);
@@ -285,15 +301,32 @@ export const AdminDashboard: React.FC = () => {
       );
   }, [orders, filter, search]);
 
-  const advance = (order: Order) => {
-    const step = nextStep(order);
-    if (!step) return;
-    if (step.status === 'completed' && isCashDue(order)) {
-      setCashOrder({ order, complete: true });
-      return;
-    }
-    actions.setStatus(order, step.status);
-  };
+  const advance = useCallback(
+    (order: Order) => {
+      const step = nextStep(order);
+      if (!step) return;
+      if (step.status === 'completed' && isCashDue(order)) {
+        setCashOrder({ order, complete: true });
+        return;
+      }
+      actions.setStatus(order, step.status);
+    },
+    [actions],
+  );
+
+  const handleCollectCash = useCallback((o: Order) => {
+    setCashOrder({ order: o, complete: false });
+  }, []);
+
+  const handleOpenCancel = useCallback((o: Order) => {
+    setCancelReason('');
+    setCancelOrder(o);
+  }, []);
+
+  const handleOpenRefund = useCallback((o: Order) => {
+    setRefundOrder(o);
+    setRefundAmount(fromCents(toCents(o.total) - toCents(o.refundAmount || 0)).toFixed(2));
+  }, []);
 
   const confirmCash = async () => {
     if (!cashOrder) return;
@@ -349,14 +382,14 @@ export const AdminDashboard: React.FC = () => {
     }
   };
 
-  const checkPayment = async (order: Order) => {
+  const checkPayment = useCallback(async (order: Order) => {
     try {
       const res = await api.confirmPayment(order.id);
       toast(res.paid ? 'Payment confirmed — order sent to the kitchen.' : `Not paid yet (${res.stripeStatus || 'no payment'}).`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not check the payment.');
     }
-  };
+  }, []);
 
   if (loading) return <PageSpinner label="Loading orders…" />;
 
@@ -367,6 +400,8 @@ export const AdminDashboard: React.FC = () => {
     { id: 'cancelled', label: 'Cancelled', count: counts.cancelled },
     { id: 'all', label: 'All' },
   ];
+
+  const displayedOrders = visible.slice(0, visibleCount);
 
   return (
     <div className="space-y-4 sm:space-y-5">
@@ -467,26 +502,33 @@ export const AdminDashboard: React.FC = () => {
               {filter === 'active' ? 'No active orders right now. New orders will appear here automatically.' : 'No orders match this filter.'}
             </div>
           ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
-              {visible.map((order) => (
-                <OrderCard
-                  key={order.id}
-                  order={order}
-                  isManager={isManager}
-                  onAdvance={advance}
-                  onCollectCash={(o) => setCashOrder({ order: o, complete: false })}
-                  onUndoCash={actions.undoCashPaid}
-                  onCancel={(o) => {
-                    setCancelReason('');
-                    setCancelOrder(o);
-                  }}
-                  onRefund={(o) => {
-                    setRefundOrder(o);
-                    setRefundAmount(fromCents(toCents(o.total) - toCents(o.refundAmount || 0)).toFixed(2));
-                  }}
-                  onCheckPayment={checkPayment}
-                />
-              ))}
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+                {displayedOrders.map((order) => (
+                  <OrderCard
+                    key={order.id}
+                    order={order}
+                    isManager={isManager}
+                    onAdvance={advance}
+                    onCollectCash={handleCollectCash}
+                    onUndoCash={actions.undoCashPaid}
+                    onCancel={handleOpenCancel}
+                    onRefund={handleOpenRefund}
+                    onCheckPayment={checkPayment}
+                  />
+                ))}
+              </div>
+              {visible.length > visibleCount && (
+                <div className="flex justify-center pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+                    className="min-h-[42px] px-5 py-2.5 rounded-xl bg-white border border-gray-200 hover:bg-gray-50 text-xs sm:text-sm font-semibold text-gray-800 transition"
+                  >
+                    Show more orders ({visible.length - visibleCount} remaining)
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </>

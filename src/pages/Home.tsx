@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
 import toast from 'react-hot-toast';
@@ -216,7 +216,10 @@ export const Home: React.FC = () => {
     const observer = new IntersectionObserver(
       (entries) => {
         const visible = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
-        if (visible[0]) setActiveCategory(visible[0].target.id.replace('category-', ''));
+        if (visible[0]) {
+          const nextId = visible[0].target.id.replace('category-', '');
+          setActiveCategory((prev) => (prev === nextId ? prev : nextId));
+        }
       },
       { rootMargin: '-140px 0px -55% 0px' },
     );
@@ -233,15 +236,18 @@ export const Home: React.FC = () => {
     chip?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
   }, [activeCategory]);
 
-  const quickAdd = (item: MenuItem) => {
-    if (!canAdd) {
-      toast.error(status.state === 'offline' ? "We're not taking orders right now." : "We're closed right now.");
-      return;
-    }
-    if (item.isSoldOut) return;
-    addToCart({ itemId: item.id, name: item.name, price: item.basePrice, quantity: 1, selectedModifiers: [] });
-    toast.success(`Added ${item.name}`, { id: `add-${item.id}`, duration: 1500 });
-  };
+  const quickAdd = useCallback(
+    (item: MenuItem) => {
+      if (!canAdd) {
+        toast.error(status.state === 'offline' ? "We're not taking orders right now." : "We're closed right now.");
+        return;
+      }
+      if (item.isSoldOut) return;
+      addToCart({ itemId: item.id, name: item.name, price: item.basePrice, quantity: 1, selectedModifiers: [] });
+      toast.success(`Added ${item.name}`, { id: `add-${item.id}`, duration: 1500 });
+    },
+    [canAdd, status.state, addToCart],
+  );
 
   if (profileLoading || menuLoading) return <SkeletonMenu />;
 

@@ -419,6 +419,19 @@ async function startServer() {
   // sends item ids, quantities and choices.
   // -------------------------------------------------------------------------
 
+  // 3-second micro-cache for restaurant/profile so simultaneous rush-hour checkouts
+  // don't hammer the single profile document on every request.
+  let cachedProfile: { at: number; data: RestaurantProfile | null } | null = null;
+  async function loadRestaurantProfile(): Promise<RestaurantProfile | null> {
+    if (cachedProfile && Date.now() - cachedProfile.at < 3000) {
+      return cachedProfile.data;
+    }
+    const snap = await db.doc('restaurant/profile').get();
+    const data = snap.exists ? (snap.data() as RestaurantProfile) : null;
+    cachedProfile = { at: Date.now(), data };
+    return data;
+  }
+
   app.post(
     '/api/checkout',
     route(async (req, res) => {
@@ -460,9 +473,8 @@ async function startServer() {
       }
 
       const now = new Date();
-      const profileSnap = await db.doc('restaurant/profile').get();
-      if (!profileSnap.exists) throw new HttpError(503, 'This store is not set up for online orders yet.');
-      const profile = profileSnap.data() as RestaurantProfile;
+      const profile = await loadRestaurantProfile();
+      if (!profile) throw new HttpError(503, 'This store is not set up for online orders yet.');
       const status = getStoreStatus(profile, now, { assumeOpenWithoutTimezone: true });
       const { hours, timeZone } = effectiveHours(profile, { assumeOpenWithoutTimezone: true });
 
@@ -623,6 +635,10 @@ async function startServer() {
         if (created) orderRef = ref;
       }
       if (!orderRef) throw new HttpError(503, 'Could not create your order. Please try again.');
+
+      if (deliveryLocation) {
+        liveOrderLocations.set(orderRef.id, { deliveryLocation, updatedAt: Date.now() });
+      }
 
       let clientSecret: string | null = null;
       if (chargeCard) {
@@ -823,11 +839,25 @@ async function startServer() {
     }),
   );
 
-  // Real-time GPS tracking store (in-memory + best-effort Firestore persistence)
+  // Real-time GPS tracking store (in-memory with bounded TTL eviction + best-effort Firestore persistence)
+  const MAX_LIVE_LOCATIONS = 500;
+  const LIVE_LOCATION_TTL_MS = 6 * 60 * 60 * 1000;
   const liveOrderLocations = new Map<
     string,
     { driverLocation?: ReturnType<typeof sanitizeGeoPoint>; deliveryLocation?: ReturnType<typeof sanitizeGeoPoint>; updatedAt: number }
   >();
+
+  function pruneLiveLocations(now: number) {
+    if (liveOrderLocations.size <= MAX_LIVE_LOCATIONS) return;
+    for (const [k, v] of liveOrderLocations) {
+      if (now - v.updatedAt > LIVE_LOCATION_TTL_MS) liveOrderLocations.delete(k);
+    }
+    while (liveOrderLocations.size > MAX_LIVE_LOCATIONS) {
+      const oldest = liveOrderLocations.keys().next().value;
+      if (oldest === undefined) break;
+      liveOrderLocations.delete(oldest);
+    }
+  }
 
   app.get(
     '/api/orders/:id/location',
@@ -855,13 +885,15 @@ async function startServer() {
       const deliveryLoc = sanitizeGeoPoint(req.body?.deliveryLocation);
       if (!driverLoc && !deliveryLoc) throw new HttpError(400, 'Valid GPS coordinates are required.');
 
-      const current = liveOrderLocations.get(id) || { updatedAt: Date.now() };
+      const now = Date.now();
+      const current = liveOrderLocations.get(id) || { updatedAt: now };
       const next = {
         driverLocation: driverLoc || current.driverLocation,
         deliveryLocation: deliveryLoc || current.deliveryLocation,
-        updatedAt: Date.now(),
+        updatedAt: now,
       };
       liveOrderLocations.set(id, next);
+      pruneLiveLocations(now);
 
       // Best-effort persistence to Firestore if Admin SDK has credentials
       const patch: Record<string, unknown> = { updatedAt: serverTimestamp() };

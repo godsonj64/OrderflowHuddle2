@@ -2,9 +2,9 @@ import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'rea
 import { Link, useNavigate } from 'react-router-dom';
 import { arrayUnion, doc, getDoc, increment, serverTimestamp, setDoc, Timestamp, updateDoc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
-import { AlertCircle, Banknote, Bike, CalendarClock, CreditCard, Minus, Plus, ShoppingCart, Store, Tag, Trash2, X, Zap } from 'lucide-react';
+import { AlertCircle, Banknote, Bike, CalendarClock, CreditCard, LocateFixed, Minus, Plus, ShoppingCart, Store, Tag, Trash2, X, Zap } from 'lucide-react';
 import { db } from '../firebase';
-import type { Order, OrderType, PaymentMethod, PromoCode } from '../types';
+import type { GeoPoint, Order, OrderType, PaymentMethod, PromoCode } from '../types';
 import { useCart } from '../context/CartContext';
 import { useStore } from '../context/StoreContext';
 import { useAuth } from '../context/AuthContext';
@@ -15,6 +15,7 @@ import { formatMoney, fromCents, parseAmount } from '../lib/money';
 import { TIP_PRESETS, computeTotals, promoDiscountCents, promoError, tipCents, type OrderTotals, type TipChoice } from '../lib/pricing';
 import { generateTimeSlots, type TimeSlot } from '../lib/hours';
 import { generateOrderCode } from '../lib/ids';
+import { geocodeAddressNominatim, reverseGeocodeNominatim } from '../lib/geo';
 import { prepMinutes, scheduleDaysAhead } from '../lib/storeStatus';
 import { ConfirmDialog, Spinner } from '../components/ui';
 import { reportError } from '../utils/errorHandling';
@@ -203,6 +204,8 @@ export const Cart: React.FC = () => {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
+  const [deliveryLocation, setDeliveryLocation] = useState<GeoPoint | null>(null);
+  const [locatingGps, setLocatingGps] = useState(false);
   const [notes, setNotes] = useState('');
   const prefilled = useRef(false);
   useEffect(() => {
@@ -212,6 +215,49 @@ export const Cart: React.FC = () => {
     setPhone((v) => v || userProfile.phone || '');
     setAddress((v) => v || userProfile.savedAddresses?.[0] || '');
   }, [userProfile]);
+
+  useEffect(() => {
+    if (orderType !== 'delivery' || address.trim().length < 6) return;
+    const ctrl = new AbortController();
+    const timer = window.setTimeout(() => {
+      geocodeAddressNominatim(address, ctrl.signal).then((pt) => {
+        if (!ctrl.signal.aborted && pt) setDeliveryLocation(pt);
+      });
+    }, 650);
+    return () => {
+      ctrl.abort();
+      window.clearTimeout(timer);
+    };
+  }, [orderType, address]);
+
+  const useCurrentGpsLocation = () => {
+    if (!('geolocation' in navigator)) {
+      toast.error('GPS location is not supported by your browser.');
+      return;
+    }
+    setLocatingGps(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const pt: GeoPoint = {
+          lat: Math.round(pos.coords.latitude * 1e6) / 1e6,
+          lng: Math.round(pos.coords.longitude * 1e6) / 1e6,
+          accuracy: Math.round(pos.coords.accuracy),
+          updatedAt: Date.now(),
+        };
+        setDeliveryLocation(pt);
+        const formatted = await reverseGeocodeNominatim(pt.lat, pt.lng);
+        if (formatted) setAddress(formatted);
+        else if (!address.trim()) setAddress(`${pt.lat}, ${pt.lng}`);
+        setLocatingGps(false);
+        toast.success('Pinned your live GPS location');
+      },
+      (err) => {
+        setLocatingGps(false);
+        toast.error(err.code === err.PERMISSION_DENIED ? 'Location access was denied.' : 'Could not get your GPS location.');
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 10000 },
+    );
+  };
 
   // --- Payment --------------------------------------------------------------
   const [methodChoice, setMethod] = useState<PaymentMethod>('card');
@@ -268,6 +314,7 @@ export const Cart: React.FC = () => {
 
   // --- Checkout -------------------------------------------------------------
   const [placing, setPlacing] = useState(false);
+  const placingRef = useRef(false);
   const [attempted, setAttempted] = useState(false);
   const [payment, setPayment] = useState<{ orderId: string; clientSecret: string; amount: number } | null>(null);
   const [priceChange, setPriceChange] = useState<OrderTotals | null>(null);
@@ -297,6 +344,7 @@ export const Cart: React.FC = () => {
   };
 
   const placeOrder = async (expectedTotalCents = totals.totalCents) => {
+    if (placingRef.current) return;
     setAttempted(true);
     if (!userProfile) {
       openAuth();
@@ -313,6 +361,7 @@ export const Cart: React.FC = () => {
       return;
     }
 
+    placingRef.current = true;
     setPlacing(true);
     try {
       const isFree = totals.totalCents === 0;
@@ -331,6 +380,7 @@ export const Cart: React.FC = () => {
           customerName: name.trim(),
           customerPhone: phone.trim(),
           deliveryAddress: orderType === 'delivery' ? address.trim() : undefined,
+          deliveryLocation: orderType === 'delivery' ? deliveryLocation : null,
           notes: notes.trim() || undefined,
           scheduledFor: when === 'later' ? selectedSlot?.iso : null,
           promoCode: promoCode && !promoProblem ? promoCode : null,
@@ -391,6 +441,7 @@ export const Cart: React.FC = () => {
           deliveryTip: totals.deliveryTip,
           total: totals.total,
           deliveryAddress: orderType === 'delivery' ? address.trim() : undefined,
+          ...(orderType === 'delivery' && deliveryLocation ? { deliveryLocation } : {}),
           notes: notes.trim() || undefined,
           scheduledFor: scheduledDate ? Timestamp.fromDate(scheduledDate) : undefined,
           scheduledTime: scheduledDate && selectedSlot ? selectedSlot.timeLabel : undefined,
@@ -441,6 +492,7 @@ export const Cart: React.FC = () => {
         toast.error(err instanceof Error ? err.message : 'Could not place your order. Please try again.', { duration: 6000 });
       }
     } finally {
+      placingRef.current = false;
       setPlacing(false);
     }
   };
@@ -690,16 +742,33 @@ export const Cart: React.FC = () => {
                 </div>
               </div>
               {orderType === 'delivery' && (
-                <div>
-                  <input
-                    className={inputCls}
-                    value={address}
-                    onChange={(e) => setAddress(e.target.value)}
-                    placeholder="Delivery address (street, apt, city)"
-                    autoComplete="street-address"
-                    maxLength={500}
-                    aria-label="Delivery address"
-                  />
+                <div className="space-y-1.5">
+                  <div className="flex gap-2">
+                    <input
+                      className={inputCls}
+                      value={address}
+                      onChange={(e) => setAddress(e.target.value)}
+                      placeholder="Delivery address (street, apt, city)"
+                      autoComplete="street-address"
+                      maxLength={500}
+                      aria-label="Delivery address"
+                    />
+                    <button
+                      type="button"
+                      onClick={useCurrentGpsLocation}
+                      disabled={locatingGps}
+                      className="shrink-0 px-3.5 rounded-btn border border-line bg-page hover:bg-soft text-xs font-semibold flex items-center gap-1.5 transition disabled:opacity-50"
+                      title="Use current GPS location"
+                    >
+                      {locatingGps ? <Spinner size={14} /> : <LocateFixed size={15} className="text-brand" />}
+                      <span className="hidden sm:inline">Use GPS</span>
+                    </button>
+                  </div>
+                  {deliveryLocation && (
+                    <p className="text-[11px] text-emerald-700 font-medium font-mono tabular-nums">
+                      GPS pin ready ({deliveryLocation.lat.toFixed(4)}, {deliveryLocation.lng.toFixed(4)})
+                    </p>
+                  )}
                   {attempted && contactErrors.address && <p className="text-xs text-red-600 mt-1">{contactErrors.address}</p>}
                 </div>
               )}
