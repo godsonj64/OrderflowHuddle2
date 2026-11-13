@@ -70,7 +70,7 @@ const OrderCard = React.memo<CardProps>(function OrderCard({
           : 'text-gray-500';
 
   return (
-    <article className="bg-white rounded-2xl border border-gray-200/80 p-4 sm:p-5 flex flex-col gap-3.5">
+    <article className="bg-white rounded-2xl border border-gray-200/90 shadow-2xs p-4 sm:p-5 flex flex-col gap-3.5 transition hover:border-gray-300">
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -82,15 +82,15 @@ const OrderCard = React.memo<CardProps>(function OrderCard({
           <p className="text-xs sm:text-sm text-gray-500 mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
             <span className="font-semibold text-gray-900">{order.customerName || 'Guest'}</span>
             <span aria-hidden="true">·</span>
-            <span>{order.type === 'delivery' ? 'Delivery' : 'Pickup'}</span>
+            <span className="font-medium text-gray-700">{order.type === 'delivery' ? 'Delivery' : 'Pickup'}</span>
             <span aria-hidden="true">·</span>
-            <span className="tabular-nums">{timeAgo(order.createdAt)}</span>
+            <span className="font-mono text-xs tabular-nums">{timeAgo(order.createdAt)}</span>
           </p>
         </div>
         <div className="text-right shrink-0">
           <p className="font-extrabold text-lg font-mono tabular-nums text-gray-900">{formatMoney(order.total)}</p>
           <p className={`text-xs ${payTextCls}`}>{pay.label}</p>
-          {!!order.refundAmount && <p className="text-[11px] text-red-600 tabular-nums">−{formatMoney(order.refundAmount)} refunded</p>}
+          {!!order.refundAmount && <p className="text-[11px] font-mono text-red-600 tabular-nums">−{formatMoney(order.refundAmount)} refunded</p>}
         </div>
       </header>
 
@@ -105,10 +105,10 @@ const OrderCard = React.memo<CardProps>(function OrderCard({
           {order.customerPhone && (
             <a
               href={`tel:${order.customerPhone}`}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium transition"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200/80 text-gray-800 font-medium transition"
             >
               <Phone size={13} />
-              <span className="tabular-nums">{order.customerPhone}</span>
+              <span className="font-mono tabular-nums text-xs">{order.customerPhone}</span>
             </a>
           )}
           {order.type === 'delivery' && order.deliveryAddress && (
@@ -116,9 +116,9 @@ const OrderCard = React.memo<CardProps>(function OrderCard({
               href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.deliveryAddress)}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium transition max-w-full"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200/80 text-gray-800 font-medium transition max-w-full"
             >
-              <MapPin size={13} className="shrink-0" />
+              <MapPin size={13} className="shrink-0 text-[#287350]" />
               <span className="truncate">{order.deliveryAddress}</span>
             </a>
           )}
@@ -126,15 +126,15 @@ const OrderCard = React.memo<CardProps>(function OrderCard({
         </div>
       )}
 
-      <ul className="bg-gray-50/80 border border-gray-100 rounded-xl p-3 space-y-2">
+      <ul className="bg-gray-50/90 border border-gray-200/70 rounded-xl p-3 space-y-2">
         {order.items.map((item, i) => (
           <li key={i} className="text-sm">
             <div className="flex justify-between gap-3">
               <span className="font-semibold text-gray-900">
-                <span className="font-mono tabular-nums text-gray-500 mr-1.5">{item.quantity}×</span>
+                <span className="font-mono tabular-nums text-[#287350] font-bold mr-1.5">{item.quantity}×</span>
                 {item.name}
               </span>
-              <span className="text-gray-500 font-mono tabular-nums shrink-0">{formatMoney(item.price * item.quantity)}</span>
+              <span className="text-gray-500 font-mono tabular-nums text-xs sm:text-sm shrink-0">{formatMoney(item.price * item.quantity)}</span>
             </div>
             {item.selectedModifiers?.length > 0 && (
               <p className="text-xs text-gray-500 pl-6 mt-0.5">{groupModifiers(item.selectedModifiers)}</p>
@@ -164,7 +164,7 @@ const OrderCard = React.memo<CardProps>(function OrderCard({
         {step && order.status !== 'payment_pending' && (
           <button
             onClick={() => onAdvance(order)}
-            className="w-full min-h-[44px] bg-gray-900 hover:bg-black text-white rounded-xl px-4 py-2.5 text-sm font-bold transition active:scale-[0.99]"
+            className="w-full min-h-[44px] bg-[#287350] hover:bg-[#1E5A3E] text-white rounded-xl px-4 py-2.5 text-sm font-bold shadow-2xs transition active:scale-[0.99]"
           >
             {step.status === 'completed' && cashDue ? `Collect ${formatMoney(order.total)} & complete` : step.label}
           </button>
@@ -174,7 +174,7 @@ const OrderCard = React.memo<CardProps>(function OrderCard({
           {cashDue && step?.status !== 'completed' && (
             <button
               onClick={() => onCollectCash(order)}
-              className="min-h-[38px] bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-xl px-3 py-1.5 text-xs font-bold transition whitespace-nowrap"
+              className="min-h-[36px] bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-xl px-3 py-1.5 text-xs font-bold transition whitespace-nowrap"
             >
               Mark paid (cash)
             </button>
@@ -182,7 +182,7 @@ const OrderCard = React.memo<CardProps>(function OrderCard({
           {order.paymentMethod === 'cash' && order.paymentStatus === 'paid' && order.status !== 'cancelled' && (
             <button
               onClick={() => onUndoCash(order)}
-              className="min-h-[38px] text-gray-600 hover:bg-gray-100 rounded-xl px-3 py-1.5 text-xs font-semibold transition whitespace-nowrap"
+              className="min-h-[36px] text-gray-600 hover:bg-gray-100 rounded-xl px-3 py-1.5 text-xs font-semibold transition whitespace-nowrap"
               title="Undo cash payment"
             >
               Undo paid
@@ -191,7 +191,7 @@ const OrderCard = React.memo<CardProps>(function OrderCard({
           {order.status === 'payment_pending' && (
             <button
               onClick={() => onCheckPayment(order)}
-              className="min-h-[38px] bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-xl px-3.5 py-1.5 text-xs font-semibold transition whitespace-nowrap"
+              className="min-h-[36px] bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-xl px-3.5 py-1.5 text-xs font-semibold transition whitespace-nowrap"
             >
               Check payment
             </button>
@@ -199,7 +199,7 @@ const OrderCard = React.memo<CardProps>(function OrderCard({
           {canRefund && (
             <button
               onClick={() => onRefund(order)}
-              className="min-h-[38px] text-amber-800 hover:bg-amber-50 rounded-xl px-3 py-1.5 text-xs font-semibold transition whitespace-nowrap"
+              className="min-h-[36px] text-amber-800 hover:bg-amber-50 rounded-xl px-3 py-1.5 text-xs font-semibold transition whitespace-nowrap"
             >
               Refund
             </button>
@@ -207,7 +207,7 @@ const OrderCard = React.memo<CardProps>(function OrderCard({
           {!['completed', 'cancelled'].includes(order.status) && (
             <button
               onClick={() => onCancel(order)}
-              className="min-h-[38px] text-red-600 hover:bg-red-50 rounded-xl px-3 py-1.5 text-xs font-semibold transition ml-auto whitespace-nowrap"
+              className="min-h-[36px] text-red-600 hover:bg-red-50 rounded-xl px-3 py-1.5 text-xs font-semibold transition ml-auto whitespace-nowrap"
             >
               Cancel order
             </button>

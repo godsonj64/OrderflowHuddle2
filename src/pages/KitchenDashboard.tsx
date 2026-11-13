@@ -66,24 +66,24 @@ const Ticket = React.memo(function Ticket({
   const waitingForDriver = order.type === 'delivery' && order.status === 'ready';
 
   return (
-    <article className="bg-[#0B0E0B] rounded-2xl border border-[#2F3C2F] overflow-hidden flex flex-col">
-      <header className="px-3.5 py-3 bg-[#151B15] border-b border-[#232D23] flex items-start justify-between gap-2">
+    <article className="bg-[#0B0F0E] rounded-2xl border border-[#222E29] overflow-hidden flex flex-col shadow-sm">
+      <header className="px-3.5 py-3 bg-[#131B18] border-b border-[#1E2A25] flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 className="text-lg sm:text-xl font-extrabold font-mono tabular-nums tracking-tight text-[#F2EBE1]">#{orderCode(order)}</h3>
-          <p className="text-xs text-[#9BA89B] mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-            <span className={order.type === 'delivery' ? 'text-sky-300 font-semibold' : 'text-[#EADDC5] font-semibold'}>
+          <h3 className="text-lg sm:text-xl font-extrabold font-mono tabular-nums tracking-tight text-[#F1F5F3]">#{orderCode(order)}</h3>
+          <p className="text-xs text-[#8C9E95] mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+            <span className={order.type === 'delivery' ? 'text-sky-300 font-semibold' : 'text-emerald-300 font-semibold'}>
               {order.type === 'delivery' ? 'Delivery' : 'Pickup'}
             </span>
             {cashDue && (
               <>
                 <span aria-hidden="true">·</span>
-                <span className="text-amber-300 font-semibold tabular-nums">Cash {formatMoney(order.total)}</span>
+                <span className="text-amber-300 font-semibold font-mono tabular-nums">Cash {formatMoney(order.total)}</span>
               </>
             )}
             {order.customerName && (
               <>
                 <span aria-hidden="true">·</span>
-                <span className="truncate max-w-[130px]">{order.customerName}</span>
+                <span className="truncate max-w-[130px] text-[#CBD5D0]">{order.customerName}</span>
               </>
             )}
           </p>
@@ -96,13 +96,13 @@ const Ticket = React.memo(function Ticket({
       <ul className="p-3.5 space-y-2.5 flex-1">
         {order.items.map((item, i) => (
           <li key={i} className="flex gap-2.5">
-            <span className="w-7 h-7 rounded-lg bg-[#232D23] text-[#F2EBE1] font-mono tabular-nums text-xs font-extrabold flex items-center justify-center shrink-0">
+            <span className="w-7 h-7 rounded-lg bg-[#1C2622] border border-[#2A3832] text-[#F1F5F3] font-mono tabular-nums text-xs font-extrabold flex items-center justify-center shrink-0">
               {item.quantity}×
             </span>
             <div className="min-w-0">
-              <p className="font-semibold text-sm text-[#F2EBE1] leading-snug">{item.name}</p>
+              <p className="font-semibold text-sm text-[#F1F5F3] leading-snug">{item.name}</p>
               {item.selectedModifiers?.length > 0 && (
-                <p className="mt-0.5 text-xs text-[#EADDC5]/85 leading-relaxed">
+                <p className="mt-0.5 text-xs text-[#94A89E] leading-relaxed">
                   {item.selectedModifiers.map((m) => m.name).join(' · ')}
                 </p>
               )}
@@ -127,12 +127,16 @@ const Ticket = React.memo(function Ticket({
           <button
             onClick={() => onAction(order)}
             className={`w-full min-h-[44px] py-3 rounded-xl font-extrabold text-xs sm:text-sm uppercase tracking-wider transition active:scale-[0.98] ${
-              order.status === 'new' ? 'bg-sky-500 text-white' : order.status === 'ready' ? 'bg-emerald-500 text-white' : 'bg-[#EADDC5] text-[#0B0E0B]'
+              order.status === 'new'
+                ? 'bg-sky-500 hover:bg-sky-600 text-white'
+                : order.status === 'ready'
+                  ? 'bg-[#287350] hover:bg-[#1E5A3E] text-white'
+                  : 'bg-[#F1F5F3] hover:bg-white text-[#0B0F0E]'
             }`}
           >
             {step.status === 'completed' && cashDue ? `Collect ${formatMoney(order.total)} & done` : waitingForDriver && order.driverName ? `Hand to ${order.driverName}` : step.label}
           </button>
-          {waitingForDriver && !order.driverName && <p className="text-[11px] text-center text-[#9BA89B] mt-1.5">Waiting for driver assignment</p>}
+          {waitingForDriver && !order.driverName && <p className="text-[11px] text-center text-[#8C9E95] mt-1.5">Waiting for driver assignment</p>}
         </div>
       )}
     </article>
@@ -241,16 +245,16 @@ export const KitchenDashboard: React.FC = () => {
   const soldOutCount = items.filter((i) => i.active && i.isSoldOut).length;
 
   return (
-    <div className="bg-[#0B0E0B] text-[#F2EBE1] min-h-[calc(100dvh-56px)] p-3 sm:p-5 lg:p-6 space-y-3.5">
+    <div className="bg-[#0B0F0E] text-[#F1F5F3] font-sans min-h-[calc(100dvh-56px)] p-3 sm:p-5 lg:p-6 space-y-3.5">
       <div className="flex flex-wrap items-center gap-2 justify-between">
         <div>
           <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">Kitchen display</h1>
-          <p className="text-xs sm:text-sm text-[#9BA89B] tabular-nums">{orders.length} open tickets · target {prep} min</p>
+          <p className="text-xs sm:text-sm text-[#8C9E95] font-mono tabular-nums">{orders.length} open tickets · target {prep} min</p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setStockOpen(true)}
-            className="min-h-[40px] flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs sm:text-sm font-semibold bg-[#232D23] hover:bg-[#2F3C2F] transition whitespace-nowrap"
+            className="min-h-[40px] flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs sm:text-sm font-semibold bg-[#18221E] border border-[#26332E] hover:bg-[#222F29] transition whitespace-nowrap"
           >
             <span>86 / Sold out</span>
             {soldOutCount > 0 && <span className="bg-red-500 text-white rounded-full px-1.5 py-0.5 text-[11px] font-mono tabular-nums">{soldOutCount}</span>}
@@ -259,7 +263,7 @@ export const KitchenDashboard: React.FC = () => {
             <button
               onClick={wake.toggle}
               className={`min-h-[40px] flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs sm:text-sm font-semibold transition whitespace-nowrap ${
-                wake.on ? 'bg-emerald-600 text-white' : 'bg-[#232D23] hover:bg-[#2F3C2F]'
+                wake.on ? 'bg-[#287350] text-white' : 'bg-[#18221E] border border-[#26332E] hover:bg-[#222F29]'
               }`}
             >
               <Sun size={15} />
@@ -268,7 +272,7 @@ export const KitchenDashboard: React.FC = () => {
           )}
           <button
             onClick={fullscreen}
-            className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl bg-[#232D23] hover:bg-[#2F3C2F] transition"
+            className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl bg-[#18221E] border border-[#26332E] hover:bg-[#222F29] transition"
             aria-label="Full screen"
           >
             <Maximize size={15} />
@@ -279,7 +283,7 @@ export const KitchenDashboard: React.FC = () => {
       <StoreControls dark />
 
       {/* Phones: 4-column segmented stage switcher — all stages visible at once */}
-      <div className="lg:hidden grid grid-cols-4 gap-1 p-1 bg-[#151B15] border border-[#232D23] rounded-xl">
+      <div className="lg:hidden grid grid-cols-4 gap-1 p-1 bg-[#111715] border border-[#1E2A25] rounded-xl">
         {COLUMNS.map((c) => {
           const n = byColumn.get(c.id)?.length || 0;
           const active = tab === c.id;
@@ -288,13 +292,13 @@ export const KitchenDashboard: React.FC = () => {
               key={c.id}
               onClick={() => setTab(c.id)}
               className={`min-h-[40px] flex items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-bold transition whitespace-nowrap ${
-                active ? 'bg-[#EADDC5] text-[#0B0E0B]' : 'text-[#9BA89B] hover:text-[#F2EBE1]'
+                active ? 'bg-[#287350] text-white shadow-xs' : 'text-[#8C9E95] hover:text-[#F1F5F3]'
               }`}
             >
               <span>{c.shortTitle}</span>
               <span
                 className={`min-w-4 h-4 px-1 rounded-full text-[10px] font-mono tabular-nums flex items-center justify-center ${
-                  n && c.id === 'new' ? 'bg-red-500 text-white' : active ? 'bg-black/15 text-[#0B0E0B]' : 'bg-white/10 text-[#F2EBE1]'
+                  n && c.id === 'new' ? 'bg-red-500 text-white' : active ? 'bg-black/25 text-white' : 'bg-white/10 text-[#F1F5F3]'
                 }`}
               >
                 {n}
@@ -308,14 +312,14 @@ export const KitchenDashboard: React.FC = () => {
         {COLUMNS.map((col) => {
           const list = byColumn.get(col.id) || [];
           return (
-            <section key={col.id} className={`${tab === col.id ? '' : 'hidden'} lg:block bg-[#151B15] rounded-2xl border ${col.accent} p-3`}>
-              <h2 className="hidden lg:flex items-center justify-between px-1 pb-3 text-sm font-bold tracking-wide text-[#F2EBE1]">
+            <section key={col.id} className={`${tab === col.id ? '' : 'hidden'} lg:block bg-[#111715] rounded-2xl border ${col.accent} p-3`}>
+              <h2 className="hidden lg:flex items-center justify-between px-1 pb-3 text-sm font-bold tracking-wide text-[#F1F5F3]">
                 <span>{col.title}</span>
-                <span className="text-xs font-mono tabular-nums text-[#9BA89B]">{list.length}</span>
+                <span className="text-xs font-mono tabular-nums text-[#8C9E95]">{list.length}</span>
               </h2>
               <div className="space-y-3">
                 {list.length === 0 ? (
-                  <p className="text-center text-xs text-[#6B7D6B] border border-dashed border-[#293429] rounded-xl py-8">No tickets in {col.title.toLowerCase()}</p>
+                  <p className="text-center text-xs text-[#66756E] border border-dashed border-[#222E29] rounded-xl py-8">No tickets in {col.title.toLowerCase()}</p>
                 ) : (
                   list.map((o) => <Ticket key={o.id} order={o} now={now} prep={prep} timeZone={status.timeZone} onAction={onAction} />)
                 )}

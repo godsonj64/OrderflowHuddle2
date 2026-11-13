@@ -163,7 +163,7 @@ export const AdminPromos: React.FC = () => {
         </div>
         <button
           onClick={() => setEditing({ promo: null, form: { ...emptyForm } })}
-          className="min-h-[42px] px-4 py-2 rounded-xl bg-gray-900 hover:bg-black text-white font-semibold text-sm flex items-center gap-1.5 whitespace-nowrap shrink-0"
+          className="min-h-[42px] px-4 py-2 rounded-xl bg-[#287350] hover:bg-[#1E5A3E] text-white font-semibold text-sm flex items-center gap-1.5 shadow-xs transition whitespace-nowrap shrink-0"
         >
           <Plus size={16} /> New code
         </button>
@@ -249,7 +249,7 @@ export const AdminPromos: React.FC = () => {
         size="md"
         title={editing?.promo ? `Edit ${editing.promo.id}` : 'New promo code'}
         footer={
-          <button onClick={save} disabled={busy} className="w-full py-3 rounded-2xl bg-gray-900 text-white font-semibold flex items-center justify-center gap-2">
+          <button onClick={save} disabled={busy} className="w-full py-3 rounded-xl bg-[#287350] hover:bg-[#1E5A3E] text-white font-semibold flex items-center justify-center gap-2 transition">
             {busy && <Spinner size={16} />} Save
           </button>
         }

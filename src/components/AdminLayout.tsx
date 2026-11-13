@@ -112,46 +112,58 @@ export const AdminLayout: React.FC = () => {
   }
 
   return (
-    <div className="min-h-[100dvh] bg-[#F8F7F4] text-gray-900 flex flex-col">
+    <div className="min-h-[100dvh] bg-[#F7F9F8] text-gray-900 font-sans antialiased flex flex-col">
       {/* Top Bar: Clean single-row contract on both mobile and desktop */}
-      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-gray-200/80">
+      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-xl border-b border-gray-200/90">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-4">
           {/* Zone 1: Brand & Live Status */}
           <div className="flex items-center gap-2.5 min-w-0">
             <Link to="/" className="flex items-center gap-2.5 min-w-0 group" title="Open storefront">
               {profile?.logoUrl ? (
-                <img src={profile.logoUrl} alt="" className="w-8 h-8 rounded-full object-cover border border-gray-200 shrink-0" />
+                <img src={profile.logoUrl} alt="" className="w-8 h-8 rounded-xl object-cover border border-gray-200 shrink-0" />
               ) : (
-                <span className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center font-bold text-sm shrink-0">
+                <span className="w-8 h-8 rounded-xl bg-[#287350] text-white flex items-center justify-center font-display font-extrabold text-sm shrink-0 shadow-2xs">
                   {(profile?.name || 'R').charAt(0)}
                 </span>
               )}
-              <span className="font-bold text-sm sm:text-base tracking-tight text-gray-900 truncate max-w-[140px] sm:max-w-[200px]">
-                {profile?.name || 'Restaurant'}
-              </span>
+              <div className="min-w-0">
+                <span className="block font-display font-extrabold text-sm sm:text-[15px] tracking-tight text-gray-900 truncate max-w-[135px] sm:max-w-[200px]">
+                  {profile?.name || 'OrderFlow'}
+                </span>
+                <span className="hidden sm:block text-[10px] font-mono uppercase tracking-widest text-gray-400 -mt-0.5">
+                  Admin Console
+                </span>
+              </div>
             </Link>
-            <span className="text-gray-300 hidden sm:inline" aria-hidden="true">/</span>
-            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-md border whitespace-nowrap shrink-0 ${statusTone}`}>
+            <span className="text-gray-200 hidden sm:inline" aria-hidden="true">|</span>
+            <span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-lg border whitespace-nowrap shrink-0 ${statusTone}`}>
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  status.state === 'open' ? 'bg-emerald-500' : status.state === 'paused' ? 'bg-amber-500' : 'bg-red-500'
+                }`}
+              />
               {status.badge}
             </span>
           </div>
 
-          {/* Zone 2: Desktop Primary Navigation (clean text links, zero icon clutter) */}
-          <nav className="hidden md:flex items-center gap-1 bg-gray-100/80 p-1 rounded-xl" aria-label="Dashboard sections">
+          {/* Zone 2: Desktop Primary Navigation */}
+          <nav className="hidden md:flex items-center gap-1 bg-gray-100 p-1 rounded-xl border border-gray-200/60" aria-label="Dashboard sections">
             {tabs.map(({ to, label, end, badge }) => (
               <NavLink
                 key={to}
                 to={to}
                 end={end}
                 className={({ isActive }) =>
-                  `relative whitespace-nowrap shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
-                    isActive ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-600 hover:text-gray-900'
+                  `relative whitespace-nowrap shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all ${
+                    isActive
+                      ? 'bg-white text-[#287350] shadow-2xs ring-1 ring-gray-200/80'
+                      : 'text-gray-600 hover:text-gray-900'
                   }`
                 }
               >
                 {label}
                 {!!badge && (
-                  <span className="min-w-4 h-4 px-1 rounded-full bg-red-600 text-white text-[10px] font-bold tabular-nums flex items-center justify-center">
+                  <span className="min-w-4 h-4 px-1 rounded-full bg-red-600 text-white text-[10px] font-mono font-bold tabular-nums flex items-center justify-center">
                     {badge}
                   </span>
                 )}
@@ -164,8 +176,10 @@ export const AdminLayout: React.FC = () => {
             {isStaff && (
               <button
                 onClick={toggleSound}
-                className={`min-h-[40px] px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition whitespace-nowrap shrink-0 ${
-                  soundOn ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                className={`min-h-[38px] px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition whitespace-nowrap shrink-0 border ${
+                  soundOn
+                    ? 'bg-[#EBF5F0] text-[#287350] border-[#287350]/25'
+                    : 'bg-gray-100 text-gray-600 border-transparent hover:bg-gray-200/70'
                 }`}
                 title={soundOn ? 'New-order alert sound is on' : 'Turn on new-order alert sound'}
                 aria-label={soundOn ? 'Sound alerts on' : 'Sound alerts off'}
@@ -176,19 +190,19 @@ export const AdminLayout: React.FC = () => {
             )}
             <Link
               to="/"
-              className="min-h-[40px] px-3 py-1.5 rounded-xl text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 flex items-center gap-1.5 transition whitespace-nowrap shrink-0"
+              className="min-h-[38px] px-3 py-1.5 rounded-xl text-xs font-semibold text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 flex items-center gap-1.5 transition whitespace-nowrap shrink-0 shadow-2xs"
               title="View customer storefront"
             >
               <span className="hidden sm:inline">Storefront</span>
-              <ExternalLink size={14} />
+              <ExternalLink size={13} />
             </Link>
             <button
               onClick={logout}
-              className="hidden md:flex min-h-[40px] min-w-[40px] items-center justify-center rounded-xl text-gray-500 hover:bg-red-50 hover:text-red-600 transition"
+              className="hidden md:flex min-h-[38px] min-w-[38px] items-center justify-center rounded-xl text-gray-500 border border-transparent hover:border-red-100 hover:bg-red-50 hover:text-red-600 transition"
               title={`Sign out ${userProfile?.email || ''}`}
               aria-label="Sign out"
             >
-              <LogOut size={16} />
+              <LogOut size={15} />
             </button>
           </div>
         </div>
@@ -216,7 +230,7 @@ export const AdminLayout: React.FC = () => {
 
       {/* Mobile Bottom Tab Bar: Thumb-zone navigation for phones */}
       <nav
-        className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-md border-t border-gray-200 pb-[env(safe-area-inset-bottom)]"
+        className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-xl border-t border-gray-200 pb-[env(safe-area-inset-bottom)]"
         aria-label="Mobile dashboard navigation"
       >
         <div className="grid items-center h-15" style={{ gridTemplateColumns: `repeat(${mobilePrimaryTabs.length + (mobileOverflowTabs.length ? 1 : 0)}, minmax(0, 1fr))` }}>
@@ -227,17 +241,17 @@ export const AdminLayout: React.FC = () => {
               end={end}
               className={({ isActive }) =>
                 `relative flex flex-col items-center justify-center h-full min-h-[48px] gap-0.5 text-[11px] font-semibold transition-colors ${
-                  isActive ? 'text-gray-900' : 'text-gray-400 hover:text-gray-700'
+                  isActive ? 'text-[#287350] font-bold' : 'text-gray-400 hover:text-gray-700'
                 }`
               }
             >
               {({ isActive }) => (
                 <>
-                  {isActive && <span className="absolute top-0 w-8 h-0.5 rounded-full bg-gray-900" />}
+                  {isActive && <span className="absolute top-0 w-8 h-0.5 rounded-full bg-[#287350]" />}
                   <span className="relative">
-                    <Icon size={20} strokeWidth={isActive ? 2.4 : 1.9} />
+                    <Icon size={19} strokeWidth={isActive ? 2.4 : 1.9} />
                     {!!badge && (
-                      <span className="absolute -top-1.5 -right-2.5 min-w-4 h-4 px-1 rounded-full bg-red-600 text-white text-[9px] font-bold tabular-nums flex items-center justify-center">
+                      <span className="absolute -top-1.5 -right-2.5 min-w-4 h-4 px-1 rounded-full bg-red-600 text-white text-[9px] font-mono font-bold tabular-nums flex items-center justify-center">
                         {badge}
                       </span>
                     )}
@@ -255,11 +269,11 @@ export const AdminLayout: React.FC = () => {
               aria-label="More sections"
               aria-expanded={moreOpen}
               className={`relative flex flex-col items-center justify-center h-full min-h-[48px] gap-0.5 text-[11px] font-semibold transition-colors ${
-                isOverflowActive || moreOpen ? 'text-gray-900' : 'text-gray-400 hover:text-gray-700'
+                isOverflowActive || moreOpen ? 'text-[#287350] font-bold' : 'text-gray-400 hover:text-gray-700'
               }`}
             >
-              {isOverflowActive && <span className="absolute top-0 w-8 h-0.5 rounded-full bg-gray-900" />}
-              <MoreHorizontal size={20} strokeWidth={isOverflowActive ? 2.4 : 1.9} />
+              {isOverflowActive && <span className="absolute top-0 w-8 h-0.5 rounded-full bg-[#287350]" />}
+              <MoreHorizontal size={19} strokeWidth={isOverflowActive ? 2.4 : 1.9} />
               <span>More</span>
             </button>
           )}
@@ -267,8 +281,8 @@ export const AdminLayout: React.FC = () => {
       </nav>
 
       {/* Mobile "More" Drawer for secondary destinations & account actions */}
-      <Sheet open={moreOpen} onClose={() => setMoreOpen(false)} surface="admin" size="sm" title={currentTab?.label ? 'Admin workspace' : 'Menu'}>
-        <div className="p-4 space-y-4">
+      <Sheet open={moreOpen} onClose={() => setMoreOpen(false)} surface="admin" size="sm" title={currentTab?.label ? 'Admin Console' : 'Menu'}>
+        <div className="p-4 space-y-4 font-sans">
           <div className="grid grid-cols-1 gap-1.5">
             {mobileOverflowTabs.map(({ to, label, icon: Icon }) => (
               <NavLink
@@ -276,8 +290,8 @@ export const AdminLayout: React.FC = () => {
                 to={to}
                 onClick={() => setMoreOpen(false)}
                 className={({ isActive }) =>
-                  `flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm font-semibold transition ${
-                    isActive ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-800 hover:bg-gray-100'
+                  `flex items-center gap-3 px-4 py-3.5 rounded-xl text-sm font-semibold transition ${
+                    isActive ? 'bg-[#287350] text-white' : 'bg-gray-50 text-gray-800 hover:bg-gray-100'
                   }`
                 }
               >
@@ -291,7 +305,7 @@ export const AdminLayout: React.FC = () => {
             <Link
               to="/"
               onClick={() => setMoreOpen(false)}
-              className="flex items-center justify-between px-4 py-3 rounded-2xl text-sm font-semibold text-gray-700 hover:bg-gray-50"
+              className="flex items-center justify-between px-4 py-3 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50"
             >
               <span>Open customer storefront</span>
               <ExternalLink size={16} className="text-gray-400" />
@@ -302,7 +316,7 @@ export const AdminLayout: React.FC = () => {
                 setMoreOpen(false);
                 logout();
               }}
-              className="w-full flex items-center justify-between px-4 py-3 rounded-2xl text-sm font-semibold text-red-600 hover:bg-red-50"
+              className="w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-semibold text-red-600 hover:bg-red-50"
             >
               <span>Sign out {userProfile?.email ? `(${userProfile.email})` : ''}</span>
               <LogOut size={16} />
@@ -313,3 +327,4 @@ export const AdminLayout: React.FC = () => {
     </div>
   );
 };
+

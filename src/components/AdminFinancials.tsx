@@ -274,11 +274,11 @@ export const AdminFinancials: React.FC<{ orders: Order[] }> = ({ orders }) => {
             {chart.some((c) => c.revenue > 0) ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={chart} margin={{ top: 4, right: 4, left: -16, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0ebe3" />
-                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#6b7d6b', fontSize: 11 }} interval="preserveStartEnd" />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fill: '#6b7d6b', fontSize: 11 }} tickFormatter={(v) => `$${v}`} width={52} />
-                  <Tooltip cursor={{ fill: '#f6f2ec' }} contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 4px 12px rgb(0 0 0 / 0.1)' }} formatter={(v: number) => [formatMoney(v), 'Revenue']} />
-                  <Bar dataKey="revenue" fill="#1A211A" radius={[6, 6, 0, 0]} />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E4EAE7" />
+                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#66756E', fontSize: 11 }} interval="preserveStartEnd" />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: '#66756E', fontSize: 11 }} tickFormatter={(v) => `$${v}`} width={52} />
+                  <Tooltip cursor={{ fill: '#F1F5F3' }} contentStyle={{ borderRadius: 12, border: '1px solid #E4EAE7', boxShadow: '0 4px 12px rgb(0 0 0 / 0.08)' }} formatter={(v: number) => [formatMoney(v), 'Revenue']} />
+                  <Bar dataKey="revenue" fill="#287350" radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -304,7 +304,7 @@ export const AdminFinancials: React.FC<{ orders: Order[] }> = ({ orders }) => {
                       </span>
                     </div>
                     <div className="h-1.5 rounded-full bg-gray-100 mt-1.5">
-                      <div className="h-full rounded-full bg-gray-900" style={{ width: `${(item.quantity / max) * 100}%` }} />
+                      <div className="h-full rounded-full bg-[#287350]" style={{ width: `${(item.quantity / max) * 100}%` }} />
                     </div>
                   </li>
                 );

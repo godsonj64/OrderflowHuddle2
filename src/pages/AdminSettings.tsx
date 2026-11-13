@@ -118,7 +118,7 @@ function DayRow({ day, hours, onChange }: { day: string; hours: DayHours; onChan
             type="checkbox"
             checked={!hours.closed}
             onChange={(e) => onChange({ ...hours, closed: !e.target.checked })}
-            className="w-4 h-4 rounded accent-gray-900"
+            className="w-4 h-4 rounded accent-[#287350]"
           />
           {day}
           {hours.closed && <span className="ml-auto sm:hidden text-xs font-normal text-gray-400">Closed</span>}
@@ -152,7 +152,7 @@ function DayRow({ day, hours, onChange }: { day: string; hours: DayHours; onChan
               type="checkbox"
               checked={!!hours.hasSecondSlot}
               onChange={(e) => onChange({ ...hours, hasSecondSlot: e.target.checked, open2: hours.open2 || '17:00', close2: hours.close2 || '21:00' })}
-              className="w-4 h-4 rounded accent-gray-900"
+              className="w-4 h-4 rounded accent-[#287350]"
             />
             Split shift (e.g. lunch & dinner)
           </label>
@@ -653,7 +653,7 @@ export const AdminSettings: React.FC = () => {
             <button onClick={discard} disabled={saving} className="ml-auto px-5 py-2.5 rounded-xl bg-gray-100 font-semibold text-sm">
               Discard
             </button>
-            <button onClick={save} disabled={saving || overBudget} className="px-6 py-2.5 rounded-xl bg-gray-900 text-white font-semibold text-sm flex items-center gap-2 disabled:opacity-50">
+            <button onClick={save} disabled={saving || overBudget} className="px-6 py-2.5 rounded-xl bg-[#287350] hover:bg-[#1E5A3E] text-white font-semibold text-sm flex items-center gap-2 disabled:opacity-50 shadow-xs transition">
               {saving && <Spinner size={16} />} Save changes
             </button>
           </div>

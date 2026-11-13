@@ -158,7 +158,7 @@ export const AdminUsers: React.FC = () => {
         </div>
         <button
           onClick={() => setCreating(true)}
-          className="min-h-[42px] px-4 py-2 rounded-xl bg-gray-900 hover:bg-black text-white font-semibold text-sm flex items-center gap-1.5 whitespace-nowrap shrink-0"
+          className="min-h-[42px] px-4 py-2 rounded-xl bg-[#287350] hover:bg-[#1E5A3E] text-white font-semibold text-sm flex items-center gap-1.5 shadow-xs transition whitespace-nowrap shrink-0"
         >
           <UserPlus size={16} /> Add team member
         </button>
@@ -293,7 +293,7 @@ export const AdminUsers: React.FC = () => {
         size="sm"
         title="Add team member"
         footer={
-          <button form="new-user" type="submit" disabled={busy} className="w-full py-3 rounded-2xl bg-gray-900 text-white font-semibold flex items-center justify-center gap-2">
+          <button form="new-user" type="submit" disabled={busy} className="w-full py-3 rounded-xl bg-[#287350] hover:bg-[#1E5A3E] text-white font-semibold flex items-center justify-center gap-2 transition">
             {busy && <Spinner size={16} />} Create account
           </button>
         }

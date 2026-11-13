@@ -150,7 +150,7 @@ export const AdminMenu: React.FC = () => {
           <button
             onClick={() => setEditing({ item: null, categoryId: (selectedCategory !== 'all' ? selectedCategory : categories[0]?.id) || '' })}
             disabled={!categories.length}
-            className="flex-1 sm:flex-initial min-h-[42px] px-4 py-2 rounded-xl bg-gray-900 hover:bg-black text-white font-semibold text-sm flex items-center justify-center gap-1.5 disabled:opacity-40 transition whitespace-nowrap"
+            className="flex-1 sm:flex-initial min-h-[42px] px-4 py-2 rounded-xl bg-[#287350] hover:bg-[#1E5A3E] text-white font-semibold text-sm flex items-center justify-center gap-1.5 disabled:opacity-40 shadow-xs transition whitespace-nowrap"
             title={categories.length ? undefined : 'Create a category first'}
           >
             <Plus size={16} /> New item
@@ -195,7 +195,7 @@ export const AdminMenu: React.FC = () => {
         <div className="bg-white rounded-2xl border border-dashed border-gray-200 p-10 text-center">
           <p className="font-semibold mb-1">Start your menu</p>
           <p className="text-sm text-gray-500 mb-4">Create a category (like “Burgers” or “Drinks”), then add items to it.</p>
-          <button onClick={() => setCategoryForm({ category: null, name: '', description: '' })} className="px-5 py-3 rounded-xl bg-gray-900 text-white font-semibold text-sm">
+          <button onClick={() => setCategoryForm({ category: null, name: '', description: '' })} className="px-5 py-3 rounded-xl bg-[#287350] hover:bg-[#1E5A3E] text-white font-semibold text-sm transition">
             Create first category
           </button>
         </div>
@@ -346,7 +346,7 @@ export const AdminMenu: React.FC = () => {
         size="sm"
         title={categoryForm?.category ? 'Edit category' : 'New category'}
         footer={
-          <button onClick={saveCategory} disabled={busy} className="w-full py-3 rounded-2xl bg-gray-900 text-white font-semibold flex items-center justify-center gap-2">
+          <button onClick={saveCategory} disabled={busy} className="w-full py-3 rounded-xl bg-[#287350] hover:bg-[#1E5A3E] text-white font-semibold flex items-center justify-center gap-2 transition">
             {busy && <Spinner size={16} />} Save
           </button>
         }

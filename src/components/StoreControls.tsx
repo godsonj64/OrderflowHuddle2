@@ -29,21 +29,27 @@ export function StoreControls({ dark = false }: { dark?: boolean }) {
   const paused = status.state === 'paused';
   const accepting = profile.isAcceptingOrders;
 
-  const surface = dark ? 'bg-[#151B15] border-[#293429] text-[#F2EBE1]' : 'bg-white border-gray-200/80 text-gray-900';
-  const chip = dark ? 'bg-[#232D23] hover:bg-[#2F3C2F] text-[#F2EBE1]' : 'bg-gray-100 hover:bg-gray-200 text-gray-800';
-  const muted = dark ? 'text-[#9BA89B]' : 'text-gray-500';
-  const divider = dark ? 'border-[#293429]' : 'border-gray-100';
+  const surface = dark
+    ? 'bg-[#111715] border-[#222E29] text-[#F1F5F3]'
+    : 'bg-white border-gray-200/90 text-gray-900 shadow-2xs';
+  const chip = dark
+    ? 'bg-[#1C2622] hover:bg-[#26332E] text-[#F1F5F3] border border-[#2A3832]'
+    : 'bg-gray-100 hover:bg-gray-200/80 text-gray-800';
+  const muted = dark ? 'text-[#8C9E95]' : 'text-gray-500';
+  const divider = dark ? 'border-[#222E29]' : 'border-gray-100';
 
   return (
-    <div className={`rounded-2xl border p-2.5 sm:px-4 sm:py-3 flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-4 ${surface}`}>
+    <div className={`rounded-2xl border p-2.5 sm:px-4 sm:py-3 flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-4 font-sans ${surface}`}>
       {/* Row 1 on mobile: Online Toggle + Wait Time Stepper */}
       <div className="flex items-center justify-between sm:justify-start gap-3">
         <button
           type="button"
           disabled={busy}
           onClick={() => update({ isAcceptingOrders: !accepting })}
-          className={`min-h-[40px] flex items-center gap-2.5 rounded-xl px-3.5 py-2 font-semibold text-xs sm:text-sm transition whitespace-nowrap shrink-0 ${
-            accepting ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-red-600 hover:bg-red-700 text-white'
+          className={`min-h-[38px] flex items-center gap-2 rounded-xl px-3.5 py-2 font-bold text-xs sm:text-sm transition whitespace-nowrap shrink-0 shadow-2xs ${
+            accepting
+              ? 'bg-[#287350] hover:bg-[#1E5A3E] text-white'
+              : 'bg-red-600 hover:bg-red-700 text-white'
           }`}
           role="switch"
           aria-checked={accepting}
@@ -59,17 +65,17 @@ export function StoreControls({ dark = false }: { dark?: boolean }) {
             type="button"
             disabled={busy || prep <= 5}
             onClick={() => update({ estimatedPrepMinutes: Math.max(5, prep - 5) })}
-            className={`w-9 h-9 rounded-lg flex items-center justify-center disabled:opacity-40 ${chip}`}
+            className={`w-8 h-8 rounded-lg flex items-center justify-center disabled:opacity-40 ${chip}`}
             aria-label="Shorter wait"
           >
             <Minus size={14} />
           </button>
-          <span className="min-w-[46px] text-center text-xs font-bold font-mono tabular-nums">{prep}m</span>
+          <span className="min-w-[44px] text-center text-xs font-bold font-mono tabular-nums">{prep}m</span>
           <button
             type="button"
             disabled={busy || prep >= 240}
             onClick={() => update({ estimatedPrepMinutes: Math.min(240, prep + 5) })}
-            className={`w-9 h-9 rounded-lg flex items-center justify-center disabled:opacity-40 ${chip}`}
+            className={`w-8 h-8 rounded-lg flex items-center justify-center disabled:opacity-40 ${chip}`}
             aria-label="Longer wait"
           >
             <Plus size={14} />
@@ -88,7 +94,7 @@ export function StoreControls({ dark = false }: { dark?: boolean }) {
               type="button"
               disabled={busy}
               onClick={() => update({ pausedUntil: null })}
-              className="min-h-[36px] rounded-xl px-3 py-1.5 text-xs font-semibold bg-emerald-600 text-white whitespace-nowrap shrink-0"
+              className="min-h-[34px] rounded-xl px-3 py-1.5 text-xs font-bold bg-[#287350] hover:bg-[#1E5A3E] text-white whitespace-nowrap shrink-0"
             >
               Resume now
             </button>
@@ -102,9 +108,9 @@ export function StoreControls({ dark = false }: { dark?: boolean }) {
                 type="button"
                 disabled={busy || !accepting}
                 onClick={() => update({ pausedUntil: Timestamp.fromMillis(Date.now() + m * 60_000) })}
-                className={`min-h-[36px] rounded-lg px-2.5 py-1 text-xs font-semibold transition disabled:opacity-40 whitespace-nowrap shrink-0 ${chip}`}
+                className={`min-h-[34px] rounded-lg px-2.5 py-1 text-xs font-semibold font-mono tabular-nums transition disabled:opacity-40 whitespace-nowrap shrink-0 ${chip}`}
               >
-                {m === 60 ? '1 hr' : `${m} min`}
+                {m === 60 ? '1 hr' : `${m}m`}
               </button>
             ))}
           </>
@@ -118,7 +124,7 @@ export function StoreControls({ dark = false }: { dark?: boolean }) {
           type="button"
           disabled={busy || prep <= 5}
           onClick={() => update({ estimatedPrepMinutes: Math.max(5, prep - 5) })}
-          className={`w-9 h-9 rounded-lg flex items-center justify-center disabled:opacity-40 ${chip}`}
+          className={`w-8 h-8 rounded-lg flex items-center justify-center disabled:opacity-40 ${chip}`}
           aria-label="Shorter wait"
         >
           <Minus size={14} />
@@ -128,7 +134,7 @@ export function StoreControls({ dark = false }: { dark?: boolean }) {
           type="button"
           disabled={busy || prep >= 240}
           onClick={() => update({ estimatedPrepMinutes: Math.min(240, prep + 5) })}
-          className={`w-9 h-9 rounded-lg flex items-center justify-center disabled:opacity-40 ${chip}`}
+          className={`w-8 h-8 rounded-lg flex items-center justify-center disabled:opacity-40 ${chip}`}
           aria-label="Longer wait"
         >
           <Plus size={14} />
@@ -137,3 +143,4 @@ export function StoreControls({ dark = false }: { dark?: boolean }) {
     </div>
   );
 }
+
