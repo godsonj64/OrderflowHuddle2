@@ -1,7 +1,7 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { Timestamp, collection, doc, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import toast from 'react-hot-toast';
-import { BarChart3, ClipboardList, Clock, MapPin, Phone, Search, User } from 'lucide-react';
+import { MapPin, Phone, Search } from 'lucide-react';
 import { db } from '../firebase';
 import type { Order } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -60,129 +60,92 @@ const OrderCard = React.memo<CardProps>(function OrderCard({
     isManager && order.paymentMethod !== 'cash' && !!order.paymentIntentId && !order.paymentIntentId.startsWith('mock_') && ['paid', 'partially_refunded'].includes(order.paymentStatus || '');
   const scheduled = order.scheduledTime;
 
-  const payBadgeCls =
+  const payTextCls =
     pay.tone === 'good'
-      ? 'bg-emerald-50 text-emerald-700 border-emerald-200/80'
+      ? 'text-emerald-700'
       : pay.tone === 'warn'
-        ? 'bg-amber-50 text-amber-800 border-amber-200/90'
+        ? 'text-amber-700 font-semibold'
         : pay.tone === 'bad'
-          ? 'bg-red-50 text-red-700 border-red-200/80'
-          : 'bg-gray-50 text-gray-600 border-gray-200/80';
+          ? 'text-red-600 font-semibold'
+          : 'text-gray-500';
 
   return (
-    <article className="bg-white rounded-2xl border border-gray-200/80 shadow-[0_2px_12px_rgba(15,23,42,0.03)] p-4 sm:p-5 flex flex-col gap-3.5 transition hover:border-gray-300/90">
-      {/* Ticket Header: Order ID + Status Badge on Left, Price + Payment Pill on Right */}
+    <article className="bg-white rounded-2xl border border-gray-200/80 p-4 sm:p-5 flex flex-col gap-3.5">
       <header className="flex items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1.5">
+        <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="font-display font-extrabold text-lg sm:text-xl tracking-tight text-gray-900 tabular-nums">
-              #{orderCode(order)}
-            </h3>
-            <span className={`px-2.5 py-0.5 rounded-full border text-[11px] font-bold uppercase tracking-wider ${STATUS_STYLE[order.status]}`}>
+            <h3 className="font-extrabold text-lg font-mono tabular-nums tracking-tight">#{orderCode(order)}</h3>
+            <span className={`px-2 py-0.5 rounded-md border text-[11px] font-bold uppercase tracking-wide ${STATUS_STYLE[order.status]}`}>
               {STATUS_LABEL[order.status]}
             </span>
-            <span
-              className={`px-2 py-0.5 rounded-md text-[11px] font-semibold ${
-                order.type === 'delivery' ? 'bg-sky-50 text-sky-700' : 'bg-gray-100 text-gray-700'
-              }`}
-            >
-              {order.type === 'delivery' ? 'Delivery' : 'Pickup'}
-            </span>
           </div>
-
-          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-gray-500">
-            <span className="inline-flex items-center gap-1 font-semibold text-gray-900 text-xs sm:text-sm">
-              <User size={13} className="text-gray-400 shrink-0" />
-              {order.customerName || 'Guest'}
-            </span>
-            <span className="inline-flex items-center gap-1 text-gray-400 font-medium">
-              <Clock size={12} className="shrink-0" />
-              {timeAgo(order.createdAt)}
-            </span>
-            {order.customerPhone && (
-              <a
-                href={`tel:${order.customerPhone}`}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-gray-100 hover:bg-gray-200/80 text-gray-700 font-display font-semibold tabular-nums text-xs transition"
-              >
-                <Phone size={11} className="text-gray-500" />
-                <span>{order.customerPhone}</span>
-              </a>
-            )}
-          </div>
-        </div>
-
-        <div className="text-right shrink-0 flex flex-col items-end gap-1">
-          <p className="font-display font-extrabold text-xl sm:text-2xl tracking-tight text-gray-900 tabular-nums leading-none">
-            {formatMoney(order.total)}
+          <p className="text-xs sm:text-sm text-gray-500 mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+            <span className="font-semibold text-gray-900">{order.customerName || 'Guest'}</span>
+            <span aria-hidden="true">·</span>
+            <span>{order.type === 'delivery' ? 'Delivery' : 'Pickup'}</span>
+            <span aria-hidden="true">·</span>
+            <span className="tabular-nums">{timeAgo(order.createdAt)}</span>
           </p>
-          <span className={`inline-flex items-center px-2 py-0.5 rounded-md border text-[11px] font-semibold ${payBadgeCls}`}>
-            {pay.label}
-          </span>
-          {!!order.refundAmount && (
-            <p className="text-[11px] font-display font-semibold text-red-600 tabular-nums">
-              −{formatMoney(order.refundAmount)} refunded
-            </p>
-          )}
+        </div>
+        <div className="text-right shrink-0">
+          <p className="font-extrabold text-lg font-mono tabular-nums">{formatMoney(order.total)}</p>
+          <p className={`text-xs ${payTextCls}`}>{pay.label}</p>
+          {!!order.refundAmount && <p className="text-[11px] font-mono text-red-600 tabular-nums">−{formatMoney(order.refundAmount)} refunded</p>}
         </div>
       </header>
 
       {scheduled && (
-        <div className="text-xs sm:text-sm font-semibold text-indigo-800 bg-indigo-50/80 border border-indigo-100 rounded-xl px-3 py-2 flex items-center gap-2">
-          <Clock size={14} className="shrink-0 text-indigo-600" />
-          <span>Scheduled for {scheduled}</span>
+        <div className="text-xs sm:text-sm font-semibold text-indigo-800 bg-indigo-50 border border-indigo-100 rounded-xl px-3 py-2">
+          Scheduled for {scheduled}
         </div>
       )}
 
-      {((order.type === 'delivery' && order.deliveryAddress) || order.driverName) && (
-        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600">
+      {(order.customerPhone || (order.type === 'delivery' && order.deliveryAddress) || order.driverName) && (
+        <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-gray-600">
+          {order.customerPhone && (
+            <a
+              href={`tel:${order.customerPhone}`}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium transition"
+            >
+              <Phone size={13} />
+              <span className="tabular-nums">{order.customerPhone}</span>
+            </a>
+          )}
           {order.type === 'delivery' && order.deliveryAddress && (
             <a
               href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.deliveryAddress)}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-gray-50 border border-gray-200/80 hover:bg-gray-100 text-gray-800 font-medium transition max-w-full"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium transition max-w-full"
             >
-              <MapPin size={13} className="shrink-0 text-[#287350]" />
+              <MapPin size={13} className="shrink-0" />
               <span className="truncate">{order.deliveryAddress}</span>
             </a>
           )}
-          {order.driverName && (
-            <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 font-semibold text-xs">
-              Driver: {order.driverName}
-            </span>
-          )}
+          {order.driverName && <span className="text-xs text-gray-500">Driver: {order.driverName}</span>}
         </div>
       )}
 
-      {/* Order Line Items Box */}
-      <ul className="bg-[#F8FAFC] border border-gray-200/70 rounded-xl p-3 space-y-2">
+      <ul className="bg-gray-50/80 border border-gray-100 rounded-xl p-3 space-y-2">
         {order.items.map((item, i) => (
           <li key={i} className="text-sm">
-            <div className="flex items-start justify-between gap-3">
-              <span className="font-semibold text-gray-900 flex items-baseline gap-2 min-w-0">
-                <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-md bg-[#EBF5F0] text-[#287350] font-display font-bold text-xs tabular-nums shrink-0">
-                  {item.quantity}×
-                </span>
-                <span className="leading-snug">{item.name}</span>
+            <div className="flex justify-between gap-3">
+              <span className="font-semibold text-gray-900">
+                <span className="font-mono tabular-nums text-gray-500 mr-1.5">{item.quantity}×</span>
+                {item.name}
               </span>
-              <span className="text-gray-600 font-display font-semibold tabular-nums text-xs sm:text-sm shrink-0">
-                {formatMoney(item.price * item.quantity)}
-              </span>
+              <span className="text-gray-500 font-mono tabular-nums text-xs sm:text-sm shrink-0">{formatMoney(item.price * item.quantity)}</span>
             </div>
             {item.selectedModifiers?.length > 0 && (
-              <p className="text-xs text-gray-500 pl-8 mt-0.5 leading-relaxed">{groupModifiers(item.selectedModifiers)}</p>
+              <p className="text-xs text-gray-500 pl-6 mt-0.5">{groupModifiers(item.selectedModifiers)}</p>
             )}
-            {item.prepNotes && (
-              <p className="text-xs font-semibold text-red-700 bg-red-50/80 border border-red-100 rounded-lg px-2.5 py-1 ml-8 mt-1">
-                Note: “{item.prepNotes}”
-              </p>
-            )}
+            {item.prepNotes && <p className="text-xs font-semibold text-red-700 pl-6 mt-0.5">Note: “{item.prepNotes}”</p>}
           </li>
         ))}
       </ul>
 
       {order.notes && (
-        <p className="text-xs sm:text-sm bg-red-50/80 border border-red-200/80 text-red-900 rounded-xl px-3 py-2 font-medium">
+        <p className="text-xs sm:text-sm bg-red-50 border border-red-200 text-red-900 rounded-xl px-3 py-2 font-medium">
           Order note: {order.notes}
         </p>
       )}
@@ -191,7 +154,7 @@ const OrderCard = React.memo<CardProps>(function OrderCard({
         <p className="text-xs text-gray-500">Cancelled by {order.cancelledBy || 'staff'}: {order.cancelReason}</p>
       )}
       {order.paymentCollectedBy && order.paymentStatus === 'paid' && order.paymentMethod === 'cash' && (
-        <p className="text-xs text-emerald-700 font-medium">
+        <p className="text-xs text-emerald-700">
           Cash collected by {order.paymentCollectedBy}
           {order.paidAt ? ` · ${formatDateTime(order.paidAt, { timeStyle: 'short' })}` : ''}
         </p>
@@ -201,7 +164,7 @@ const OrderCard = React.memo<CardProps>(function OrderCard({
         {step && order.status !== 'payment_pending' && (
           <button
             onClick={() => onAdvance(order)}
-            className="w-full min-h-[44px] bg-gradient-to-b from-[#2E825B] to-[#236646] hover:from-[#287350] hover:to-[#1E5A3E] text-white rounded-xl px-4 py-2.5 text-sm font-bold shadow-xs transition active:scale-[0.99]"
+            className="w-full min-h-[44px] bg-gray-900 hover:bg-black text-white rounded-xl px-4 py-2.5 text-sm font-bold transition active:scale-[0.99]"
           >
             {step.status === 'completed' && cashDue ? `Collect ${formatMoney(order.total)} & complete` : step.label}
           </button>
@@ -211,7 +174,7 @@ const OrderCard = React.memo<CardProps>(function OrderCard({
           {cashDue && step?.status !== 'completed' && (
             <button
               onClick={() => onCollectCash(order)}
-              className="min-h-[36px] bg-amber-100/90 hover:bg-amber-200/80 text-amber-900 border border-amber-200/80 rounded-xl px-3 py-1.5 text-xs font-bold transition whitespace-nowrap"
+              className="min-h-[36px] bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-xl px-3 py-1.5 text-xs font-bold transition whitespace-nowrap"
             >
               Mark paid (cash)
             </button>
@@ -277,6 +240,7 @@ export const AdminDashboard: React.FC = () => {
   }, [filter, search]);
 
   useEffect(() => {
+    // Live window of the last 30 days (bounded to 500 recent orders so rush-hour volume stays fast).
     const since = Timestamp.fromMillis(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const unsub = onSnapshot(
       query(collection(db, 'orders'), where('createdAt', '>=', since), orderBy('createdAt', 'desc'), limit(500)),
@@ -380,6 +344,7 @@ export const AdminDashboard: React.FC = () => {
         const res = await api.cancel(cancelOrder.id, cancelReason.trim() || undefined);
         toast.success(res.refunded ? `Cancelled and refunded #${orderCode(cancelOrder)}` : `Cancelled #${orderCode(cancelOrder)}`);
       } catch {
+        // Direct Firestore fallback for staff cancellation
         await updateDoc(doc(db, 'orders', cancelOrder.id), {
           status: 'cancelled',
           cancelledBy: 'staff',
@@ -439,74 +404,56 @@ export const AdminDashboard: React.FC = () => {
   const displayedOrders = visible.slice(0, visibleCount);
 
   return (
-    <div className="space-y-3.5 sm:space-y-5">
+    <div className="space-y-4 sm:space-y-5">
       <StoreControls />
 
-      {/* Daily Snapshot KPI Cards + View Switcher */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-        <div className="grid grid-cols-3 gap-2.5 sm:gap-3 flex-1">
-          <div className="bg-white rounded-2xl border border-gray-200/80 shadow-[0_2px_10px_rgba(15,23,42,0.025)] px-3.5 py-3 sm:p-4">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 truncate">Orders today</p>
-            <p className="text-xl sm:text-2xl font-display font-extrabold tracking-tight text-gray-900 tabular-nums mt-1">
-              {today.count}
-            </p>
+      {/* Top-level view toggle for managers so financial charts don't clutter the live orders feed on mobile */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="grid grid-cols-3 gap-2 sm:gap-3 flex-1">
+          <div className="bg-white rounded-2xl border border-gray-200/80 px-3 py-2.5 sm:p-4">
+            <p className="text-[11px] font-medium text-gray-500 truncate">Orders today</p>
+            <p className="text-lg sm:text-2xl font-extrabold font-mono tabular-nums mt-0.5">{today.count}</p>
           </div>
-
-          <div className="bg-white rounded-2xl border border-gray-200/80 shadow-[0_2px_10px_rgba(15,23,42,0.025)] px-3.5 py-3 sm:p-4">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 truncate">Sales today</p>
-            <p className="text-xl sm:text-2xl font-display font-extrabold tracking-tight text-gray-900 tabular-nums mt-1">
-              {formatMoney(today.sales)}
-            </p>
+          <div className="bg-white rounded-2xl border border-gray-200/80 px-3 py-2.5 sm:p-4">
+            <p className="text-[11px] font-medium text-gray-500 truncate">Sales today</p>
+            <p className="text-lg sm:text-2xl font-extrabold font-mono tabular-nums mt-0.5">{formatMoney(today.sales)}</p>
           </div>
-
           <button
             type="button"
             onClick={() => {
               setViewMode('orders');
               setFilter('unpaid');
             }}
-            className={`text-left rounded-2xl border px-3.5 py-3 sm:p-4 transition shadow-[0_2px_10px_rgba(15,23,42,0.025)] ${
-              today.cashOutstanding > 0
-                ? 'bg-gradient-to-br from-amber-50/90 via-white to-white border-amber-300/80 hover:border-amber-400'
-                : 'bg-white border-gray-200/80 hover:bg-gray-50'
+            className={`text-left rounded-2xl border px-3 py-2.5 sm:p-4 transition ${
+              today.cashOutstanding > 0 ? 'bg-amber-50 border-amber-200 hover:bg-amber-100/70' : 'bg-white border-gray-200/80 hover:bg-gray-50'
             }`}
           >
-            <div className="flex items-center justify-between gap-1">
-              <p className={`text-[11px] font-semibold uppercase tracking-wider truncate ${today.cashOutstanding > 0 ? 'text-amber-700' : 'text-gray-400'}`}>
-                Cash due
-              </p>
-              {today.cashOutstanding > 0 && <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />}
-            </div>
-            <p className={`text-xl sm:text-2xl font-display font-extrabold tracking-tight tabular-nums mt-1 ${today.cashOutstanding > 0 ? 'text-amber-900' : 'text-gray-900'}`}>
+            <p className={`text-[11px] font-medium truncate ${today.cashOutstanding > 0 ? 'text-amber-800' : 'text-gray-500'}`}>Cash due</p>
+            <p className={`text-lg sm:text-2xl font-extrabold font-mono tabular-nums mt-0.5 ${today.cashOutstanding > 0 ? 'text-amber-900' : 'text-gray-900'}`}>
               {formatMoney(today.cashOutstanding)}
             </p>
           </button>
         </div>
 
         {isManager && (
-          <div className="grid grid-cols-2 sm:inline-flex items-center p-1 bg-gray-200/70 rounded-xl shrink-0">
+          <div className="flex items-center p-1 bg-gray-200/70 rounded-xl self-start sm:self-stretch shrink-0">
             <button
               type="button"
               onClick={() => setViewMode('orders')}
-              className={`min-h-[36px] px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold flex items-center justify-center gap-1.5 transition whitespace-nowrap ${
-                viewMode === 'orders' ? 'bg-white text-gray-900 shadow-2xs' : 'text-gray-600 hover:text-gray-900'
+              className={`flex-1 sm:flex-initial px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition whitespace-nowrap ${
+                viewMode === 'orders' ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              <ClipboardList size={14} />
-              <span>Live orders</span>
-              <span className="font-display font-bold tabular-nums text-xs px-1.5 py-0.2 rounded-full bg-gray-100 text-gray-700">
-                {counts.active}
-              </span>
+              Live orders ({counts.active})
             </button>
             <button
               type="button"
               onClick={() => setViewMode('insights')}
-              className={`min-h-[36px] px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold flex items-center justify-center gap-1.5 transition whitespace-nowrap ${
-                viewMode === 'insights' ? 'bg-white text-gray-900 shadow-2xs' : 'text-gray-600 hover:text-gray-900'
+              className={`flex-1 sm:flex-initial px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition whitespace-nowrap ${
+                viewMode === 'insights' ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              <BarChart3 size={14} />
-              <span>Sales & insights</span>
+              Sales & insights
             </button>
           </div>
         )}
@@ -524,42 +471,28 @@ export const AdminDashboard: React.FC = () => {
         </Suspense>
       ) : (
         <>
-          {/* Filter Chips + Search Bar (Clean pill chips instead of a second stacked gray box) */}
-          <div className="flex flex-col sm:flex-row gap-2.5 sm:items-center justify-between">
-            <div className="flex items-center gap-1.5 overflow-x-auto hide-scrollbar py-0.5">
-              {filters.map((f) => {
-                const active = filter === f.id;
-                return (
-                  <button
-                    key={f.id}
-                    onClick={() => setFilter(f.id)}
-                    className={`shrink-0 h-9 px-3.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-1.5 transition whitespace-nowrap border ${
-                      active
-                        ? 'bg-[#287350] text-white border-[#287350] shadow-2xs'
-                        : 'bg-white text-gray-600 border-gray-200/80 hover:border-gray-300 hover:text-gray-900'
-                    }`}
-                  >
-                    <span>{f.label}</span>
-                    {f.count !== undefined && (
-                      <span
-                        className={`font-display font-bold tabular-nums text-[11px] px-1.5 py-0.2 rounded-md ${
-                          active ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'
-                        }`}
-                      >
-                        {f.count}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+          <div className="flex flex-col sm:flex-row gap-2.5 sm:items-center">
+            <div className="flex items-center gap-0.5 sm:gap-1 p-1 bg-gray-200/60 rounded-xl overflow-x-auto hide-scrollbar">
+              {filters.map((f) => (
+                <button
+                  key={f.id}
+                  onClick={() => setFilter(f.id)}
+                  className={`flex-1 sm:flex-initial shrink-0 min-h-[36px] px-2 sm:px-3 py-1.5 rounded-lg text-[11px] sm:text-sm font-semibold transition whitespace-nowrap text-center ${
+                    filter === f.id ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  {f.label}
+                  {f.count !== undefined && <span className="ml-1 font-mono tabular-nums opacity-65">{f.count}</span>}
+                </button>
+              ))}
             </div>
-            <div className="relative sm:w-72">
-              <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+            <div className="relative sm:ml-auto sm:w-72">
+              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search order #, name, phone, item…"
-                className={`${adminInput} pl-9 h-10`}
+                className={`${adminInput} pl-9`}
               />
             </div>
           </div>
@@ -570,7 +503,7 @@ export const AdminDashboard: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-4">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5 sm:gap-4">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
                 {displayedOrders.map((order) => (
                   <OrderCard
                     key={order.id}
@@ -608,7 +541,7 @@ export const AdminDashboard: React.FC = () => {
         message={
           cashOrder && (
             <>
-              Collect <strong className="text-gray-900 text-base font-display font-bold tabular-nums">{formatMoney(cashOrder.order.total)}</strong> in cash from{' '}
+              Collect <strong className="text-gray-900 text-base font-mono tabular-nums">{formatMoney(cashOrder.order.total)}</strong> in cash from{' '}
               {cashOrder.order.customerName || 'the customer'} for order #{orderCode(cashOrder.order)}. This records the payment under your name.
             </>
           )
@@ -647,10 +580,10 @@ export const AdminDashboard: React.FC = () => {
         title={`Refund #${refundOrder ? orderCode(refundOrder) : ''}`}
         footer={
           <div className="flex gap-3">
-            <button onClick={() => setRefundOrder(null)} disabled={working} className="flex-1 py-3 rounded-xl bg-gray-100 font-semibold">
+            <button onClick={() => setRefundOrder(null)} disabled={working} className="flex-1 py-3 rounded-2xl bg-gray-100 font-semibold">
               Cancel
             </button>
-            <button onClick={confirmRefund} disabled={working} className="flex-1 py-3 rounded-xl bg-amber-600 text-white font-semibold flex items-center justify-center gap-2">
+            <button onClick={confirmRefund} disabled={working} className="flex-1 py-3 rounded-2xl bg-amber-600 text-white font-semibold flex items-center justify-center gap-2">
               {working && <Spinner size={16} />} Refund
             </button>
           </div>
@@ -660,11 +593,11 @@ export const AdminDashboard: React.FC = () => {
           <p>
             Paid {formatMoney(refundOrder?.total)}
             {refundOrder?.refundAmount ? `, already refunded ${formatMoney(refundOrder.refundAmount)}` : ''}. You can refund up to{' '}
-            <strong className="text-gray-900 font-display font-bold tabular-nums">{formatMoney(refundable)}</strong>.
+            <strong className="text-gray-900 font-mono tabular-nums">{formatMoney(refundable)}</strong>.
           </p>
           <div className="relative">
             <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">$</span>
-            <input type="number" inputMode="decimal" step="0.01" min="0.01" max={refundable} value={refundAmount} onChange={(e) => setRefundAmount(e.target.value)} className={`${adminInput} pl-7 font-display font-semibold tabular-nums`} />
+            <input type="number" inputMode="decimal" step="0.01" min="0.01" max={refundable} value={refundAmount} onChange={(e) => setRefundAmount(e.target.value)} className={`${adminInput} pl-7 font-mono tabular-nums`} />
           </div>
           <div className="flex gap-2">
             {[0.25, 0.5, 1].map((f) => (

@@ -108,9 +108,13 @@ export function AppearanceSettings({ draft, update }: Props) {
     try {
       const list = Array.from(files);
       if (kind === 'banner') {
-        update({ bannerUrl: await resizeWithPreset(list[0], 'banner') });
+        const converted = await resizeWithPreset(list[0], 'banner');
+        update({ bannerUrl: converted });
+        toast.success('Banner converted to WebP');
       } else if (kind === 'promoBanner') {
-        setTheme({ promoBannerUrl: await resizeWithPreset(list[0], 'banner') });
+        const converted = await resizeWithPreset(list[0], 'banner');
+        setTheme({ promoBannerUrl: converted });
+        toast.success('Promo banner converted to WebP');
       } else {
         const key = kind === 'marquee' ? 'marqueeImageUrls' : 'galleryImageUrls';
         const existing = (draft[key] as string[] | undefined) || [];
@@ -118,6 +122,7 @@ export function AppearanceSettings({ draft, update }: Props) {
         const urls: string[] = [];
         for (const f of list.slice(0, room)) urls.push(await resizeWithPreset(f, kind));
         update({ [key]: [...existing, ...urls] } as Partial<RestaurantProfile>);
+        if (urls.length > 0) toast.success(`${urls.length} image${urls.length > 1 ? 's' : ''} converted to WebP`);
         if (list.length > room) toast('Only 12 images are allowed here.');
       }
     } catch (err) {

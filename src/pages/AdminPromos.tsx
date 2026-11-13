@@ -163,7 +163,7 @@ export const AdminPromos: React.FC = () => {
         </div>
         <button
           onClick={() => setEditing({ promo: null, form: { ...emptyForm } })}
-          className="min-h-[42px] px-4 py-2 rounded-xl bg-[#287350] hover:bg-[#1E5A3E] text-white font-semibold text-sm flex items-center gap-1.5 shadow-xs transition whitespace-nowrap shrink-0"
+          className="min-h-[42px] px-4 py-2 rounded-xl bg-gray-900 hover:bg-black text-white font-semibold text-sm flex items-center gap-1.5 whitespace-nowrap shrink-0"
         >
           <Plus size={16} /> New code
         </button>
@@ -182,14 +182,14 @@ export const AdminPromos: React.FC = () => {
             return (
               <article
                 key={p.id}
-                className={`bg-white rounded-2xl border border-gray-200/80 shadow-[0_2px_10px_rgba(15,23,42,0.025)] p-4 sm:p-5 flex flex-col justify-between gap-3.5 ${
+                className={`bg-white rounded-2xl border border-gray-200/80 p-4 sm:p-5 flex flex-col justify-between gap-3.5 ${
                   p.active && !expired && !exhausted ? '' : 'opacity-70'
                 }`}
               >
                 <div className="space-y-2">
                   <header className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <h3 className="font-display font-extrabold text-lg tracking-tight text-gray-900">{p.id}</h3>
+                      <h3 className="font-extrabold font-mono text-lg tracking-tight text-gray-900">{p.id}</h3>
                       <p className="text-sm font-semibold text-gray-700 mt-0.5 tabular-nums">{describe(p)}</p>
                       {p.description && <p className="text-xs text-gray-500 mt-0.5">{p.description}</p>}
                     </div>
@@ -249,7 +249,7 @@ export const AdminPromos: React.FC = () => {
         size="md"
         title={editing?.promo ? `Edit ${editing.promo.id}` : 'New promo code'}
         footer={
-          <button onClick={save} disabled={busy} className="w-full py-3 rounded-xl bg-[#287350] hover:bg-[#1E5A3E] text-white font-semibold flex items-center justify-center gap-2 transition">
+          <button onClick={save} disabled={busy} className="w-full py-3 rounded-2xl bg-gray-900 text-white font-semibold flex items-center justify-center gap-2">
             {busy && <Spinner size={16} />} Save
           </button>
         }

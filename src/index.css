@@ -1,25 +1,25 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Plus Jakarta Sans", "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-display: "Outfit", "Plus Jakarta Sans", "Geist", -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-mono: "Outfit", "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-sans: "Geist", "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Geist", "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: "Outfit", "Plus Jakarta Sans", "Geist", -apple-system, BlinkMacSystemFont, sans-serif;
 
-  /* Admin portal palette (Crisp Architectural Slate + Botanical Emerald) */
+  /* Admin portal palette (Warm Sand, Cream & Deep Forest Charcoal from deployed UI) */
   --color-primary: #287350;
   --color-primary-dark: #1E5A3E;
   --color-primary-light: #EBF5F0;
-  --color-black: #090D0B;
-  --color-gray-900: #0F172A;
-  --color-gray-800: #1E293B;
-  --color-gray-700: #334155;
-  --color-gray-600: #475569;
-  --color-gray-500: #64748B;
-  --color-gray-400: #94A3B8;
-  --color-gray-300: #CBD5E1;
-  --color-gray-200: #E2E8F0;
-  --color-gray-100: #F1F5F9;
-  --color-gray-50: #F8FAFC;
+  --color-black: #0C100C;
+  --color-gray-900: #151B15;
+  --color-gray-800: #232D23;
+  --color-gray-700: #374437;
+  --color-gray-600: #4A5A4A;
+  --color-gray-500: #6B7D6B;
+  --color-gray-400: #9EB09E;
+  --color-gray-300: #D8CBB8;
+  --color-gray-200: #EADDC5;
+  --color-gray-100: #F2EBE1;
+  --color-gray-50: #FAF6F0;
 
   /*
    * Storefront design tokens. These defaults are the Kupa Light Mode theme; the owner's
@@ -58,16 +58,16 @@ body {
 
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-display);
-  letter-spacing: -0.025em;
+  letter-spacing: -0.02em;
 }
 
 /* Modern geometric numerals without slashed zeros or typewriter spacing */
 .font-mono,
 .tabular-nums {
-  font-family: var(--font-display);
+  font-family: "Outfit", "Plus Jakarta Sans", "Geist", sans-serif;
   font-variant-numeric: tabular-nums lining-nums;
   font-feature-settings: "tnum" 1, "lnum" 1, "zero" 0;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.01em;
 }
 
 button, a, [role="button"] {
@@ -109,6 +109,10 @@ button, a, [role="button"] {
   }
   .mb-safe {
     margin-bottom: env(safe-area-inset-bottom);
+  }
+  .cv-section {
+    content-visibility: auto;
+    contain-intrinsic-size: 1px 420px;
   }
 }
 

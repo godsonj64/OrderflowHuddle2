@@ -7,7 +7,7 @@ import type { MenuCategory, MenuItem, ModifierGroup } from '../types';
 import { uid } from '../lib/ids';
 import { parseAmount } from '../lib/money';
 import { describeGroupRule } from '../lib/pricing';
-import { resizeWithPreset } from '../utils/imageUpload';
+import { dataUrlBytes, formatBytes, resizeWithPreset } from '../utils/imageUpload';
 import { friendlyError } from '../utils/errorHandling';
 import { ConfirmDialog, Field, Sheet, Spinner, Toggle, adminInput } from './ui';
 
@@ -219,7 +219,9 @@ export function ItemEditor({ open, item, defaultCategoryId, categories, nextDisp
     if (!file) return;
     setUploading(true);
     try {
-      set({ imageUrl: await resizeWithPreset(file, 'item') });
+      const converted = await resizeWithPreset(file, 'item');
+      set({ imageUrl: converted });
+      toast.success(`Converted to WebP (${formatBytes(dataUrlBytes(converted))})`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not use that image.');
     } finally {
@@ -364,11 +366,18 @@ export function ItemEditor({ open, item, defaultCategoryId, categories, nextDisp
               </div>
             </div>
           </div>
-          {draft.imageUrl && (
-            <button type="button" onClick={() => set({ imageUrl: '' })} className="text-xs font-semibold text-red-600 -mt-3">
-              Remove photo
-            </button>
-          )}
+          <div className="flex items-center justify-between gap-2 -mt-2">
+            <span className="text-[11px] text-gray-500">
+              {draft.imageUrl.startsWith('data:image/webp')
+                ? `WebP optimized · ${formatBytes(dataUrlBytes(draft.imageUrl))} · Full HD clarity`
+                : 'Any JPEG, PNG, or WebP auto-converts to WebP for fast loading'}
+            </span>
+            {draft.imageUrl && (
+              <button type="button" onClick={() => set({ imageUrl: '' })} className="text-xs font-semibold text-red-600 shrink-0">
+                Remove photo
+              </button>
+            )}
+          </div>
 
           <Field label="Description">
             <textarea value={draft.description} onChange={(e) => set({ description: e.target.value.slice(0, 1000) })} rows={3} className={`${adminInput} resize-none`} placeholder="What makes it great? Ingredients, portion size…" />

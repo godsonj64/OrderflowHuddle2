@@ -27,11 +27,25 @@ export const AdminMenu: React.FC = () => {
   const categoryIds = useMemo(() => new Set(categories.map((c) => c.id)), [categories]);
   const sections = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const match = (i: MenuItem) => !q || i.name.toLowerCase().includes(q) || i.description?.toLowerCase().includes(q);
-    const list = categories.map((c) => ({ category: c as MenuCategory | null, id: c.id, items: items.filter((i) => i.categoryId === c.id && match(i)).sort(sortItems) }));
+    const byCategory = new Map<string, MenuItem[]>();
+    const orphans: MenuItem[] = [];
+    for (const item of items) {
+      if (q && !item.name.toLowerCase().includes(q) && !item.description?.toLowerCase().includes(q)) continue;
+      if (!categoryIds.has(item.categoryId)) {
+        orphans.push(item);
+      } else {
+        const bucket = byCategory.get(item.categoryId);
+        if (bucket) bucket.push(item);
+        else byCategory.set(item.categoryId, [item]);
+      }
+    }
+    const list = categories.map((c) => ({
+      category: c as MenuCategory | null,
+      id: c.id,
+      items: (byCategory.get(c.id) || []).sort(sortItems),
+    }));
     // Items whose category was deleted used to vanish from the admin. Show them so they can be fixed.
-    const orphans = items.filter((i) => !categoryIds.has(i.categoryId) && match(i)).sort(sortItems);
-    if (orphans.length) list.push({ category: null, id: UNCATEGORIZED, items: orphans });
+    if (orphans.length) list.push({ category: null, id: UNCATEGORIZED, items: orphans.sort(sortItems) });
     const filtered = q ? list.filter((s) => s.items.length) : list;
     return selectedCategory === 'all' ? filtered : filtered.filter((s) => s.id === selectedCategory);
   }, [categories, items, categoryIds, search, selectedCategory]);
@@ -150,7 +164,7 @@ export const AdminMenu: React.FC = () => {
           <button
             onClick={() => setEditing({ item: null, categoryId: (selectedCategory !== 'all' ? selectedCategory : categories[0]?.id) || '' })}
             disabled={!categories.length}
-            className="flex-1 sm:flex-initial min-h-[42px] px-4 py-2 rounded-xl bg-[#287350] hover:bg-[#1E5A3E] text-white font-semibold text-sm flex items-center justify-center gap-1.5 disabled:opacity-40 shadow-xs transition whitespace-nowrap"
+            className="flex-1 sm:flex-initial min-h-[42px] px-4 py-2 rounded-xl bg-gray-900 hover:bg-black text-white font-semibold text-sm flex items-center justify-center gap-1.5 disabled:opacity-40 transition whitespace-nowrap"
             title={categories.length ? undefined : 'Create a category first'}
           >
             <Plus size={16} /> New item
@@ -159,16 +173,14 @@ export const AdminMenu: React.FC = () => {
       </div>
 
       {/* Search + Quick Category Filter for fast mobile navigation */}
-      <div className="flex flex-col sm:flex-row gap-2.5 sm:items-center justify-between">
+      <div className="flex flex-col sm:flex-row gap-2.5 sm:items-center">
         {categories.length > 1 && (
-          <div className="flex items-center gap-1.5 overflow-x-auto hide-scrollbar py-0.5">
+          <div className="flex items-center gap-1 p-1 bg-gray-200/60 rounded-xl overflow-x-auto hide-scrollbar">
             <button
               type="button"
               onClick={() => setSelectedCategory('all')}
-              className={`shrink-0 h-9 px-3.5 rounded-xl text-xs font-semibold border transition whitespace-nowrap ${
-                selectedCategory === 'all'
-                  ? 'bg-[#287350] text-white border-[#287350] shadow-2xs'
-                  : 'bg-white text-gray-600 border-gray-200/80 hover:border-gray-300 hover:text-gray-900'
+              className={`shrink-0 min-h-[34px] px-3 py-1 rounded-lg text-xs font-semibold transition whitespace-nowrap ${
+                selectedCategory === 'all' ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-600 hover:text-gray-900'
               }`}
             >
               All ({categories.length})
@@ -178,10 +190,8 @@ export const AdminMenu: React.FC = () => {
                 key={c.id}
                 type="button"
                 onClick={() => setSelectedCategory(c.id)}
-                className={`shrink-0 h-9 px-3.5 rounded-xl text-xs font-semibold border transition whitespace-nowrap ${
-                  selectedCategory === c.id
-                    ? 'bg-[#287350] text-white border-[#287350] shadow-2xs'
-                    : 'bg-white text-gray-600 border-gray-200/80 hover:border-gray-300 hover:text-gray-900'
+                className={`shrink-0 min-h-[34px] px-3 py-1 rounded-lg text-xs font-semibold transition whitespace-nowrap ${
+                  selectedCategory === c.id ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
                 {c.name}
@@ -190,8 +200,8 @@ export const AdminMenu: React.FC = () => {
           </div>
         )}
         <div className="relative sm:ml-auto sm:w-72">
-          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search menu items…" className={`${adminInput} pl-9 h-10`} />
+          <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search menu items…" className={`${adminInput} pl-9`} />
         </div>
       </div>
 
@@ -199,21 +209,21 @@ export const AdminMenu: React.FC = () => {
         <div className="bg-white rounded-2xl border border-dashed border-gray-200 p-10 text-center">
           <p className="font-semibold mb-1">Start your menu</p>
           <p className="text-sm text-gray-500 mb-4">Create a category (like “Burgers” or “Drinks”), then add items to it.</p>
-          <button onClick={() => setCategoryForm({ category: null, name: '', description: '' })} className="px-5 py-3 rounded-xl bg-[#287350] hover:bg-[#1E5A3E] text-white font-semibold text-sm transition">
+          <button onClick={() => setCategoryForm({ category: null, name: '', description: '' })} className="px-5 py-3 rounded-xl bg-gray-900 text-white font-semibold text-sm">
             Create first category
           </button>
         </div>
       )}
 
       {sections.map(({ category, id, items: list }) => (
-        <section key={id} className="bg-white rounded-2xl border border-gray-200/80 shadow-[0_2px_10px_rgba(15,23,42,0.025)] overflow-hidden">
+        <section key={id} className="cv-section bg-white rounded-2xl border border-gray-200/80 overflow-hidden">
           <header className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/70">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <h2 className={`font-display font-bold text-base truncate ${category && !category.active ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
+                <h2 className={`font-bold text-base truncate ${category && !category.active ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
                   {category ? category.name : 'Uncategorized'}
                 </h2>
-                <span className="text-xs text-gray-400 font-display font-semibold tabular-nums">({list.length})</span>
+                <span className="text-xs text-gray-400 font-mono tabular-nums">({list.length})</span>
               </div>
               {(!category || !category.active || category.description) && (
                 <p className="text-xs text-gray-500 truncate mt-0.5">
@@ -248,7 +258,13 @@ export const AdminMenu: React.FC = () => {
                 <button onClick={() => setEditing({ item, categoryId: item.categoryId })} className="flex items-center gap-3 min-w-0 flex-1 text-left">
                   <span className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-gray-100 border border-gray-200/60 overflow-hidden shrink-0 flex items-center justify-center text-xs font-bold text-gray-400">
                     {item.imageUrl ? (
-                      <img src={item.imageUrl} alt="" className={`w-full h-full object-cover ${item.isSoldOut ? 'grayscale opacity-60' : ''}`} />
+                      <img
+                        src={item.imageUrl}
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                        className={`w-full h-full object-cover ${item.isSoldOut ? 'grayscale opacity-60' : ''}`}
+                      />
                     ) : (
                       item.name.charAt(0).toUpperCase()
                     )}
@@ -350,7 +366,7 @@ export const AdminMenu: React.FC = () => {
         size="sm"
         title={categoryForm?.category ? 'Edit category' : 'New category'}
         footer={
-          <button onClick={saveCategory} disabled={busy} className="w-full py-3 rounded-xl bg-[#287350] hover:bg-[#1E5A3E] text-white font-semibold flex items-center justify-center gap-2 transition">
+          <button onClick={saveCategory} disabled={busy} className="w-full py-3 rounded-2xl bg-gray-900 text-white font-semibold flex items-center justify-center gap-2">
             {busy && <Spinner size={16} />} Save
           </button>
         }

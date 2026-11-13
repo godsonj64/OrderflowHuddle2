@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { collection, doc, onSnapshot, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
+import { collection, doc, limit, onSnapshot, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import { Camera, CheckCircle2, LocateFixed, MapPin, Navigation, Package, Phone, Radio } from 'lucide-react';
 import { db } from '../firebase';
@@ -57,7 +57,7 @@ export const DriverDashboard: React.FC = () => {
   useEffect(() => {
     if (!userProfile) return;
     const unsubAvailable = onSnapshot(
-      query(collection(db, 'orders'), where('type', '==', 'delivery'), where('status', 'in', ['preparing', 'ready'])),
+      query(collection(db, 'orders'), where('type', '==', 'delivery'), where('status', 'in', ['preparing', 'ready']), limit(150)),
       (snap) => {
         setAvailable(
           snap.docs
@@ -69,7 +69,7 @@ export const DriverDashboard: React.FC = () => {
       (err) => reportError(err, 'driver-available'),
     );
     const unsubMine = onSnapshot(
-      query(collection(db, 'orders'), where('type', '==', 'delivery'), where('driverId', '==', userProfile.uid)),
+      query(collection(db, 'orders'), where('type', '==', 'delivery'), where('driverId', '==', userProfile.uid), limit(150)),
       (snap) => {
         setMine(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Order).filter((o) => !['completed', 'cancelled'].includes(o.status)));
       },
@@ -443,10 +443,10 @@ export const DriverDashboard: React.FC = () => {
         ) : (
           <div className="grid sm:grid-cols-2 gap-3">
             {available.map((order) => (
-              <article key={order.id} className="bg-white rounded-2xl border border-gray-200/80 shadow-[0_2px_10px_rgba(15,23,42,0.025)] p-4 flex flex-col gap-3">
+              <article key={order.id} className="bg-white rounded-2xl border border-gray-200/80 p-4 flex flex-col gap-3">
                 <header className="flex items-start justify-between gap-2">
                   <div>
-                    <h3 className="font-display font-extrabold text-lg tabular-nums">#{orderCode(order)}</h3>
+                    <h3 className="font-extrabold text-lg font-mono tabular-nums">#{orderCode(order)}</h3>
                     <p className="text-xs text-gray-500 mt-0.5">
                       {order.customerName} · {timeAgo(order.createdAt)}
                     </p>
@@ -468,7 +468,7 @@ export const DriverDashboard: React.FC = () => {
                 <button
                   onClick={() => accept(order)}
                   disabled={busyId === order.id}
-                  className="mt-auto w-full min-h-[44px] bg-[#287350] hover:bg-[#1E5A3E] text-white rounded-xl py-2.5 text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-50 shadow-2xs transition"
+                  className="mt-auto w-full min-h-[44px] bg-gray-900 hover:bg-black text-white rounded-xl py-2.5 text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-50 transition"
                 >
                   {busyId === order.id && <Spinner size={16} />} Accept delivery
                 </button>

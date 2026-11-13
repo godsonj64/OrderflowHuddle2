@@ -175,7 +175,7 @@ export function ConfirmDialog({
     ? 'bg-red-600 text-white hover:bg-red-700'
     : surface === 'store'
       ? 'bg-brand text-on-brand'
-      : 'bg-[#287350] text-white hover:bg-[#1E5A3E]';
+      : 'bg-gray-900 text-white hover:bg-black';
   return (
     <Sheet
       open={open}
@@ -185,14 +185,14 @@ export function ConfirmDialog({
       surface={surface}
       footer={
         <div className="flex gap-3">
-          <button type="button" onClick={onCancel} disabled={busy} className={`flex-1 py-3 rounded-xl font-semibold text-sm transition ${cancelCls}`}>
+          <button type="button" onClick={onCancel} disabled={busy} className={`flex-1 py-3 rounded-2xl font-semibold text-sm transition ${cancelCls}`}>
             {cancelLabel}
           </button>
           <button
             type="button"
             onClick={onConfirm}
             disabled={busy}
-            className={`flex-1 py-3 rounded-xl font-bold text-sm transition flex items-center justify-center gap-2 disabled:opacity-60 ${confirmCls}`}
+            className={`flex-1 py-3 rounded-2xl font-bold text-sm transition flex items-center justify-center gap-2 disabled:opacity-60 ${confirmCls}`}
           >
             {busy && <Spinner size={18} />}
             {confirmLabel}
@@ -212,7 +212,7 @@ export function ConfirmDialog({
 export function Field({ label, hint, children, className = '' }: { label: React.ReactNode; hint?: React.ReactNode; children: React.ReactNode; className?: string }) {
   return (
     <label className={`block ${className}`}>
-      <span className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1.5">{label}</span>
+      <span className="block text-xs font-semibold text-gray-700 mb-1.5">{label}</span>
       {children}
       {hint && <span className="block text-xs text-gray-500 mt-1 leading-relaxed">{hint}</span>}
     </label>
@@ -220,5 +220,5 @@ export function Field({ label, hint, children, className = '' }: { label: React.
 }
 
 export const adminInput =
-  'w-full border border-gray-200 bg-white rounded-xl px-3.5 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-[#287350]/15 focus:border-[#287350] outline-none transition disabled:bg-gray-50 disabled:text-gray-400';
+  'w-full border border-gray-200 bg-white rounded-xl px-3.5 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-gray-900/15 focus:border-gray-900 outline-none transition disabled:bg-gray-50 disabled:text-gray-400';
 

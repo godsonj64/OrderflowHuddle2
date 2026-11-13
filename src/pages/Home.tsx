@@ -496,10 +496,17 @@ export const Home: React.FC = () => {
       .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0) || a.name.localeCompare(b.name));
   }, [items, visibleCategories]);
 
-  const sections = useMemo(
-    () => visibleCategories.map((c) => ({ category: c, items: visibleItems.filter((i) => i.categoryId === c.id) })).filter((s) => s.items.length > 0),
-    [visibleCategories, visibleItems],
-  );
+  const sections = useMemo(() => {
+    const byCategory = new Map<string, MenuItem[]>();
+    for (const item of visibleItems) {
+      const list = byCategory.get(item.categoryId);
+      if (list) list.push(item);
+      else byCategory.set(item.categoryId, [item]);
+    }
+    return visibleCategories
+      .map((c) => ({ category: c, items: byCategory.get(c.id) || [] }))
+      .filter((s) => s.items.length > 0);
+  }, [visibleCategories, visibleItems]);
 
   const featured = useMemo(() => {
     const picks = visibleItems.filter((i) => i.isFeatured);
@@ -732,7 +739,7 @@ export const Home: React.FC = () => {
           )}
 
           {sections.map(({ category, items: list }) => (
-            <section key={category.id} id={`category-${category.id}`} className="scroll-mt-32 sm:scroll-mt-36 space-y-3">
+            <section key={category.id} id={`category-${category.id}`} className="cv-section scroll-mt-32 sm:scroll-mt-36 space-y-3">
               <div>
                 <h3 className="font-display text-base sm:text-xl font-extrabold text-ink">{category.name}</h3>
                 {category.description && <p className="text-xs sm:text-sm text-muted">{category.description}</p>}

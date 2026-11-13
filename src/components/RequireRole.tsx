@@ -56,7 +56,7 @@ export function RequireRole({ roles, children }: { roles: UserRole[]; children: 
 
   if (!userProfile) {
     return (
-      <div className="min-h-[100dvh] bg-[#F7F9F8] text-gray-900 font-sans flex flex-col justify-between p-4 sm:p-8 relative overflow-hidden">
+      <div className="min-h-[100dvh] bg-[#F8F7F4] text-gray-900 font-sans flex flex-col justify-between p-4 sm:p-8 relative overflow-hidden">
         {/* Subtle architectural top bar */}
         <header className="relative z-10 max-w-6xl w-full mx-auto flex items-center justify-between">
           <Link
@@ -174,7 +174,7 @@ export function RequireRole({ roles, children }: { roles: UserRole[]; children: 
               <button
                 type="submit"
                 disabled={busy}
-                className="w-full min-h-[46px] bg-[#287350] hover:bg-[#1E5A3E] text-white rounded-xl py-3 px-4 text-sm font-bold flex items-center justify-center gap-2 shadow-xs transition active:scale-[0.99] disabled:opacity-60"
+                className="w-full min-h-[46px] bg-gray-900 hover:bg-black text-white rounded-xl py-3 px-4 text-sm font-bold flex items-center justify-center gap-2 shadow-xs transition active:scale-[0.99] disabled:opacity-60"
               >
                 {busy ? <Spinner size={16} /> : <Lock size={15} />}
                 <span>{mode === 'signin' ? 'Sign in to Admin Portal' : 'Send Reset Link'}</span>
@@ -229,7 +229,7 @@ export function RequireRole({ roles, children }: { roles: UserRole[]; children: 
 
   if (!role || !roles.includes(role)) {
     return (
-      <div className="min-h-[100dvh] bg-[#F7F9F8] text-gray-900 font-sans flex items-center justify-center p-6">
+      <div className="min-h-[100dvh] bg-[#F8F7F4] text-gray-900 font-sans flex items-center justify-center p-6">
         <div className="max-w-md w-full bg-white rounded-3xl border border-gray-200/90 shadow-ios-lg p-7 sm:p-8 text-center space-y-5">
           <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200/80 text-amber-600 flex items-center justify-center mx-auto">
             <ShieldAlert size={24} />
@@ -249,7 +249,7 @@ export function RequireRole({ roles, children }: { roles: UserRole[]; children: 
           <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
             <Link
               to="/"
-              className="flex-1 min-h-[44px] bg-[#287350] hover:bg-[#1E5A3E] text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center justify-center transition"
+              className="flex-1 min-h-[44px] bg-gray-900 hover:bg-black text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center justify-center transition"
             >
               Back to Storefront
             </Link>

@@ -506,10 +506,17 @@ async function startServer() {
       }
       if (paymentMethod === 'cash' && !cashAvailable) throw new HttpError(409, 'Paying with cash is not available for online orders.');
 
-      if (paymentMethod === 'cash') {
-        const mine = await ordersCol().where('customerId', '==', user.uid).get();
-        const openUnpaid = mine.docs
-          .map((d) => d.data() as Order)
+      const itemIds = [...new Set(lines.map((l) => l.itemId).filter(Boolean))];
+      const [mineSnap, itemSnaps] = await Promise.all([
+        paymentMethod === 'cash'
+          ? ordersCol().where('customerId', '==', user.uid).select('paymentMethod', 'paymentStatus', 'status').get()
+          : Promise.resolve(null),
+        itemIds.length ? db.getAll(...itemIds.map((id) => db.collection('items').doc(id))) : Promise.resolve([]),
+      ]);
+
+      if (mineSnap) {
+        const openUnpaid = mineSnap.docs
+          .map((d) => d.data() as Pick<Order, 'paymentMethod' | 'paymentStatus' | 'status'>)
           .filter((o) => o.paymentMethod === 'cash' && o.paymentStatus === 'pending' && !['completed', 'cancelled', 'payment_pending'].includes(o.status));
         if (openUnpaid.length >= MAX_OPEN_UNPAID_CASH_ORDERS) {
           throw new HttpError(429, 'You already have several unpaid cash orders open. Please pay for those first or contact the restaurant.');
@@ -517,8 +524,6 @@ async function startServer() {
       }
 
       // Authoritative catalog read.
-      const itemIds = [...new Set(lines.map((l) => l.itemId).filter(Boolean))];
-      const itemSnaps = itemIds.length ? await db.getAll(...itemIds.map((id) => db.collection('items').doc(id))) : [];
       const items = new Map<string, MenuItem>();
       for (const s of itemSnaps) if (s.exists) items.set(s.id, { id: s.id, ...(s.data() as Omit<MenuItem, 'id'>) });
       const categoryIds = [...new Set([...items.values()].map((i) => i.categoryId).filter(Boolean))];
