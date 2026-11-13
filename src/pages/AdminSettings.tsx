@@ -70,10 +70,10 @@ function normalize(profile: RestaurantProfile | null): RestaurantProfile {
 
 function Card({ title, description, children }: { title?: string; description?: string; children: React.ReactNode }) {
   return (
-    <section className="bg-white rounded-2xl border border-gray-200/80 p-4 sm:p-5 space-y-4">
+    <section className="bg-white rounded-2xl border border-gray-200/80 shadow-[0_2px_10px_rgba(15,23,42,0.025)] p-4 sm:p-5 space-y-4">
       {title && (
         <div>
-          <h3 className="font-bold text-gray-900">{title}</h3>
+          <h3 className="font-display font-bold text-gray-900">{title}</h3>
           {description && <p className="text-xs text-gray-500 mt-0.5">{description}</p>}
         </div>
       )}
@@ -329,14 +329,16 @@ export const AdminSettings: React.FC = () => {
         </button>
       </div>
 
-      {/* Segmented settings tabs */}
-      <div className="grid grid-cols-5 sm:inline-flex items-center gap-1 p-1 bg-gray-200/60 rounded-xl">
+      {/* Settings category chips */}
+      <div className="flex items-center gap-1.5 overflow-x-auto hide-scrollbar py-0.5">
         {TABS.map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`min-h-[36px] px-1.5 sm:px-3.5 py-1.5 rounded-lg text-[11px] sm:text-sm font-semibold transition whitespace-nowrap text-center truncate ${
-              tab === t.id ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-600 hover:text-gray-900'
+            className={`shrink-0 h-9 px-3.5 rounded-xl text-xs sm:text-sm font-semibold border transition whitespace-nowrap ${
+              tab === t.id
+                ? 'bg-[#287350] text-white border-[#287350] shadow-2xs'
+                : 'bg-white text-gray-600 border-gray-200/80 hover:border-gray-300 hover:text-gray-900'
             }`}
           >
             {t.label}

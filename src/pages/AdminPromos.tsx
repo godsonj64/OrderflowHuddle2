@@ -182,14 +182,14 @@ export const AdminPromos: React.FC = () => {
             return (
               <article
                 key={p.id}
-                className={`bg-white rounded-2xl border border-gray-200/80 p-4 sm:p-5 flex flex-col justify-between gap-3.5 ${
+                className={`bg-white rounded-2xl border border-gray-200/80 shadow-[0_2px_10px_rgba(15,23,42,0.025)] p-4 sm:p-5 flex flex-col justify-between gap-3.5 ${
                   p.active && !expired && !exhausted ? '' : 'opacity-70'
                 }`}
               >
                 <div className="space-y-2">
                   <header className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <h3 className="font-extrabold font-mono text-lg tracking-tight text-gray-900">{p.id}</h3>
+                      <h3 className="font-display font-extrabold text-lg tracking-tight text-gray-900">{p.id}</h3>
                       <p className="text-sm font-semibold text-gray-700 mt-0.5 tabular-nums">{describe(p)}</p>
                       {p.description && <p className="text-xs text-gray-500 mt-0.5">{p.description}</p>}
                     </div>

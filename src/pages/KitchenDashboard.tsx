@@ -69,7 +69,7 @@ const Ticket = React.memo(function Ticket({
     <article className="bg-[#0B0F0E] rounded-2xl border border-[#222E29] overflow-hidden flex flex-col shadow-sm">
       <header className="px-3.5 py-3 bg-[#131B18] border-b border-[#1E2A25] flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 className="text-lg sm:text-xl font-extrabold font-mono tabular-nums tracking-tight text-[#F1F5F3]">#{orderCode(order)}</h3>
+          <h3 className="text-lg sm:text-xl font-display font-extrabold tabular-nums tracking-tight text-[#F1F5F3]">#{orderCode(order)}</h3>
           <p className="text-xs text-[#8C9E95] mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
             <span className={order.type === 'delivery' ? 'text-sky-300 font-semibold' : 'text-emerald-300 font-semibold'}>
               {order.type === 'delivery' ? 'Delivery' : 'Pickup'}
@@ -77,7 +77,7 @@ const Ticket = React.memo(function Ticket({
             {cashDue && (
               <>
                 <span aria-hidden="true">·</span>
-                <span className="text-amber-300 font-semibold font-mono tabular-nums">Cash {formatMoney(order.total)}</span>
+                <span className="text-amber-300 font-semibold font-display tabular-nums">Cash {formatMoney(order.total)}</span>
               </>
             )}
             {order.customerName && (
@@ -88,7 +88,7 @@ const Ticket = React.memo(function Ticket({
             )}
           </p>
         </div>
-        <span className={`shrink-0 px-2 py-1 rounded-lg text-xs font-bold font-mono tabular-nums ${timerCls}`}>
+        <span className={`shrink-0 px-2 py-1 rounded-lg text-xs font-display font-bold tabular-nums ${timerCls}`}>
           {timerText}
         </span>
       </header>
@@ -96,7 +96,7 @@ const Ticket = React.memo(function Ticket({
       <ul className="p-3.5 space-y-2.5 flex-1">
         {order.items.map((item, i) => (
           <li key={i} className="flex gap-2.5">
-            <span className="w-7 h-7 rounded-lg bg-[#1C2622] border border-[#2A3832] text-[#F1F5F3] font-mono tabular-nums text-xs font-extrabold flex items-center justify-center shrink-0">
+            <span className="w-7 h-7 rounded-lg bg-[#1C2622] border border-[#2A3832] text-[#F1F5F3] font-display tabular-nums text-xs font-extrabold flex items-center justify-center shrink-0">
               {item.quantity}×
             </span>
             <div className="min-w-0">

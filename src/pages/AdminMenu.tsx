@@ -159,14 +159,16 @@ export const AdminMenu: React.FC = () => {
       </div>
 
       {/* Search + Quick Category Filter for fast mobile navigation */}
-      <div className="flex flex-col sm:flex-row gap-2.5 sm:items-center">
+      <div className="flex flex-col sm:flex-row gap-2.5 sm:items-center justify-between">
         {categories.length > 1 && (
-          <div className="flex items-center gap-1 p-1 bg-gray-200/60 rounded-xl overflow-x-auto hide-scrollbar">
+          <div className="flex items-center gap-1.5 overflow-x-auto hide-scrollbar py-0.5">
             <button
               type="button"
               onClick={() => setSelectedCategory('all')}
-              className={`shrink-0 min-h-[34px] px-3 py-1 rounded-lg text-xs font-semibold transition whitespace-nowrap ${
-                selectedCategory === 'all' ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-600 hover:text-gray-900'
+              className={`shrink-0 h-9 px-3.5 rounded-xl text-xs font-semibold border transition whitespace-nowrap ${
+                selectedCategory === 'all'
+                  ? 'bg-[#287350] text-white border-[#287350] shadow-2xs'
+                  : 'bg-white text-gray-600 border-gray-200/80 hover:border-gray-300 hover:text-gray-900'
               }`}
             >
               All ({categories.length})
@@ -176,8 +178,10 @@ export const AdminMenu: React.FC = () => {
                 key={c.id}
                 type="button"
                 onClick={() => setSelectedCategory(c.id)}
-                className={`shrink-0 min-h-[34px] px-3 py-1 rounded-lg text-xs font-semibold transition whitespace-nowrap ${
-                  selectedCategory === c.id ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-600 hover:text-gray-900'
+                className={`shrink-0 h-9 px-3.5 rounded-xl text-xs font-semibold border transition whitespace-nowrap ${
+                  selectedCategory === c.id
+                    ? 'bg-[#287350] text-white border-[#287350] shadow-2xs'
+                    : 'bg-white text-gray-600 border-gray-200/80 hover:border-gray-300 hover:text-gray-900'
                 }`}
               >
                 {c.name}
@@ -186,8 +190,8 @@ export const AdminMenu: React.FC = () => {
           </div>
         )}
         <div className="relative sm:ml-auto sm:w-72">
-          <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search menu items…" className={`${adminInput} pl-9`} />
+          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search menu items…" className={`${adminInput} pl-9 h-10`} />
         </div>
       </div>
 
@@ -202,14 +206,14 @@ export const AdminMenu: React.FC = () => {
       )}
 
       {sections.map(({ category, id, items: list }) => (
-        <section key={id} className="bg-white rounded-2xl border border-gray-200/80 overflow-hidden">
+        <section key={id} className="bg-white rounded-2xl border border-gray-200/80 shadow-[0_2px_10px_rgba(15,23,42,0.025)] overflow-hidden">
           <header className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/70">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <h2 className={`font-bold text-base truncate ${category && !category.active ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
+                <h2 className={`font-display font-bold text-base truncate ${category && !category.active ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
                   {category ? category.name : 'Uncategorized'}
                 </h2>
-                <span className="text-xs text-gray-400 font-mono tabular-nums">({list.length})</span>
+                <span className="text-xs text-gray-400 font-display font-semibold tabular-nums">({list.length})</span>
               </div>
               {(!category || !category.active || category.description) && (
                 <p className="text-xs text-gray-500 truncate mt-0.5">
@@ -254,7 +258,7 @@ export const AdminMenu: React.FC = () => {
                       {item.name}
                     </span>
                     <span className="block text-xs text-gray-500 mt-0.5 truncate">
-                      <span className="font-mono tabular-nums font-semibold text-gray-700">{formatMoney(item.basePrice)}</span>
+                      <span className="font-display tabular-nums font-bold text-gray-800">{formatMoney(item.basePrice)}</span>
                       {item.isFeatured ? ' · Featured' : ''}
                       {item.modifierGroups?.length ? ` · ${item.modifierGroups.length} option${item.modifierGroups.length > 1 ? 's' : ''}` : ''}
                       {item.soldCount ? ` · ${item.soldCount} sold` : ''}

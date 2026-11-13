@@ -215,23 +215,25 @@ export const AdminFinancials: React.FC<{ orders: Order[] }> = ({ orders }) => {
   };
 
   const Stat = ({ label, value, hint, tone = '' }: { label: string; value: string; hint?: string; tone?: string }) => (
-    <div className={`rounded-2xl border p-3.5 sm:p-4 ${tone || 'bg-white border-gray-200/80'}`}>
-      <p className="text-xs font-medium text-gray-500">{label}</p>
-      <p className="text-lg sm:text-2xl font-extrabold font-mono tabular-nums mt-0.5 text-gray-900">{value}</p>
-      {hint && <p className="text-[11px] text-gray-500 mt-0.5 tabular-nums">{hint}</p>}
+    <div className={`rounded-2xl border p-3.5 sm:p-4 shadow-[0_2px_10px_rgba(15,23,42,0.025)] ${tone || 'bg-white border-gray-200/80'}`}>
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">{label}</p>
+      <p className="text-xl sm:text-2xl font-display font-extrabold tracking-tight tabular-nums mt-1 text-gray-900">{value}</p>
+      {hint && <p className="text-xs text-gray-500 mt-1 tabular-nums">{hint}</p>}
     </div>
   );
 
   return (
     <section className="space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-1 p-1 bg-gray-200/60 rounded-xl overflow-x-auto hide-scrollbar">
+        <div className="flex items-center gap-1.5 overflow-x-auto hide-scrollbar py-0.5">
           {(Object.keys(RANGE_LABEL) as Range[]).map((r) => (
             <button
               key={r}
               onClick={() => setRange(r)}
-              className={`shrink-0 min-h-[34px] px-3 py-1.5 rounded-lg text-xs font-semibold transition whitespace-nowrap ${
-                range === r ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-600 hover:text-gray-900'
+              className={`shrink-0 h-9 px-3.5 rounded-xl text-xs font-semibold border transition whitespace-nowrap ${
+                range === r
+                  ? 'bg-[#287350] text-white border-[#287350] shadow-2xs'
+                  : 'bg-white text-gray-600 border-gray-200/80 hover:border-gray-300 hover:text-gray-900'
               }`}
             >
               {RANGE_LABEL[r]}
@@ -241,7 +243,7 @@ export const AdminFinancials: React.FC<{ orders: Order[] }> = ({ orders }) => {
         <button
           onClick={exportCsv}
           disabled={!inRange.length}
-          className="self-start sm:self-auto min-h-[36px] flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-gray-900 text-white disabled:opacity-40 whitespace-nowrap"
+          className="self-start sm:self-auto h-9 flex items-center gap-1.5 px-3.5 rounded-xl text-xs font-semibold bg-white border border-gray-200/90 hover:bg-gray-50 text-gray-800 shadow-2xs disabled:opacity-40 whitespace-nowrap transition"
         >
           <Download size={14} /> Export CSV
         </button>
@@ -260,7 +262,7 @@ export const AdminFinancials: React.FC<{ orders: Order[] }> = ({ orders }) => {
         <Stat label="Net sales" value={formatMoney(stats.net)} hint={`${stats.count} orders · avg ${formatMoney(stats.avg)}`} />
         <Stat label="Card collected" value={formatMoney(stats.card)} />
         <Stat label="Cash collected" value={formatMoney(stats.cash)} />
-        <Stat label="Cash outstanding" value={formatMoney(stats.cashDue)} tone={stats.cashDue > 0 ? 'bg-amber-50 border-amber-200' : ''} />
+        <Stat label="Cash outstanding" value={formatMoney(stats.cashDue)} tone={stats.cashDue > 0 ? 'bg-gradient-to-br from-amber-50/90 via-white to-white border-amber-300/80' : ''} />
         <Stat label="Tips" value={formatMoney(stats.tips)} />
         <Stat label="Tax collected" value={formatMoney(stats.tax)} />
         <Stat label="Discounts given" value={formatMoney(stats.discounts)} hint={stats.refunds ? `Refunds ${formatMoney(stats.refunds)}` : undefined} />
@@ -268,16 +270,16 @@ export const AdminFinancials: React.FC<{ orders: Order[] }> = ({ orders }) => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4">
-        <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-200/80 p-4 sm:p-5">
-          <h3 className="font-bold text-sm sm:text-base mb-3">Revenue breakdown</h3>
+        <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-200/80 shadow-[0_2px_10px_rgba(15,23,42,0.025)] p-4 sm:p-5">
+          <h3 className="font-display font-bold text-sm sm:text-base mb-3 text-gray-900">Revenue breakdown</h3>
           <div className="h-56 sm:h-64">
             {chart.some((c) => c.revenue > 0) ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={chart} margin={{ top: 4, right: 4, left: -16, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E4EAE7" />
-                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#66756E', fontSize: 11 }} interval="preserveStartEnd" />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fill: '#66756E', fontSize: 11 }} tickFormatter={(v) => `$${v}`} width={52} />
-                  <Tooltip cursor={{ fill: '#F1F5F3' }} contentStyle={{ borderRadius: 12, border: '1px solid #E4EAE7', boxShadow: '0 4px 12px rgb(0 0 0 / 0.08)' }} formatter={(v: number) => [formatMoney(v), 'Revenue']} />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#64748B', fontSize: 11 }} interval="preserveStartEnd" />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748B', fontSize: 11 }} tickFormatter={(v) => `$${v}`} width={52} />
+                  <Tooltip cursor={{ fill: '#F1F5F9' }} contentStyle={{ borderRadius: 12, border: '1px solid #E2E8F0', boxShadow: '0 4px 12px rgb(0 0 0 / 0.08)' }} formatter={(v: number) => [formatMoney(v), 'Revenue']} />
                   <Bar dataKey="revenue" fill="#287350" radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -286,8 +288,8 @@ export const AdminFinancials: React.FC<{ orders: Order[] }> = ({ orders }) => {
             )}
           </div>
         </div>
-        <div className="bg-white rounded-2xl border border-gray-200/80 p-4 sm:p-5">
-          <h3 className="font-bold text-sm sm:text-base mb-3">Top selling items</h3>
+        <div className="bg-white rounded-2xl border border-gray-200/80 shadow-[0_2px_10px_rgba(15,23,42,0.025)] p-4 sm:p-5">
+          <h3 className="font-display font-bold text-sm sm:text-base mb-3 text-gray-900">Top selling items</h3>
           {topItems.length ? (
             <ol className="space-y-3">
               {topItems.map((item, i) => {
@@ -296,11 +298,11 @@ export const AdminFinancials: React.FC<{ orders: Order[] }> = ({ orders }) => {
                   <li key={item.name + i} className="text-sm">
                     <div className="flex justify-between gap-2">
                       <span className="font-semibold truncate text-gray-900">
-                        <span className="font-mono tabular-nums text-gray-400 mr-1.5">0{i + 1}.</span>
+                        <span className="font-display font-bold tabular-nums text-gray-400 mr-1.5">{i + 1}.</span>
                         {item.name}
                       </span>
-                      <span className="text-gray-500 font-mono tabular-nums whitespace-nowrap text-xs">
-                        {item.quantity} · {formatMoney(fromCents(item.revenue))}
+                      <span className="text-gray-600 font-display font-semibold tabular-nums whitespace-nowrap text-xs">
+                        {item.quantity} sold · {formatMoney(fromCents(item.revenue))}
                       </span>
                     </div>
                     <div className="h-1.5 rounded-full bg-gray-100 mt-1.5">

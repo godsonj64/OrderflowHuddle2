@@ -164,14 +164,16 @@ export const AdminUsers: React.FC = () => {
         </button>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-2.5 sm:items-center">
-        <div className="flex items-center gap-1 p-1 bg-gray-200/60 rounded-xl self-start">
+      <div className="flex flex-col sm:flex-row gap-2.5 sm:items-center justify-between">
+        <div className="flex items-center gap-1.5 overflow-x-auto hide-scrollbar py-0.5">
           {(['all', 'team', 'customers'] as Filter[]).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
-              className={`min-h-[34px] px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold capitalize transition whitespace-nowrap ${
-                filter === f ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-600 hover:text-gray-900'
+              className={`shrink-0 h-9 px-3.5 rounded-xl text-xs sm:text-sm font-semibold capitalize border transition whitespace-nowrap ${
+                filter === f
+                  ? 'bg-[#287350] text-white border-[#287350] shadow-2xs'
+                  : 'bg-white text-gray-600 border-gray-200/80 hover:border-gray-300 hover:text-gray-900'
               }`}
             >
               {f}
@@ -179,16 +181,16 @@ export const AdminUsers: React.FC = () => {
           ))}
         </div>
         <div className="relative sm:ml-auto sm:w-72">
-          <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, email, phone…" className={`${adminInput} pl-9`} />
+          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, email, phone…" className={`${adminInput} pl-9 h-10`} />
         </div>
       </div>
 
-      <ul className="bg-white rounded-2xl border border-gray-200/80 divide-y divide-gray-100 overflow-hidden">
+      <ul className="bg-white rounded-2xl border border-gray-200/80 shadow-[0_2px_10px_rgba(15,23,42,0.025)] divide-y divide-gray-100 overflow-hidden">
         {visible.map((u) => (
           <li key={u.uid}>
             <button onClick={() => setSelected(u)} className="w-full min-h-[60px] flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition">
-              <span className="w-10 h-10 rounded-full bg-gray-100 border border-gray-200/60 flex items-center justify-center font-bold text-sm text-gray-700 shrink-0">
+              <span className="w-10 h-10 rounded-full bg-[#EBF5F0] text-[#287350] border border-[#287350]/15 flex items-center justify-center font-display font-bold text-sm shrink-0">
                 {(u.name || u.email).charAt(0).toUpperCase()}
               </span>
               <span className="min-w-0 flex-1">
@@ -200,7 +202,7 @@ export const AdminUsers: React.FC = () => {
               </span>
               {u.role === 'customer' && (
                 <span className="text-right text-xs text-gray-500 shrink-0 tabular-nums">
-                  <span className="block font-bold font-mono text-gray-900">{formatMoney(u.totalSpent || 0)}</span>
+                  <span className="block font-display font-bold text-sm text-gray-900">{formatMoney(u.totalSpent || 0)}</span>
                   <span>{u.totalOrders || 0} orders</span>
                 </span>
               )}
