@@ -324,11 +324,9 @@ function Footer() {
           <span>
             © {new Date().getFullYear()} {profile.name}
           </span>
-          {theme.showPoweredBy && (
-            <span className="flex items-center gap-2">
-              Powered by <Logo className="h-4 w-auto" cutoutFill="var(--color-card)" />
-            </span>
-          )}
+          <span className="flex items-center gap-2">
+            Powered by <Logo className="h-4 w-auto" cutoutFill="var(--color-card)" />
+          </span>
         </div>
       </div>
     </footer>

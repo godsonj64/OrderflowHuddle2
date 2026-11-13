@@ -230,7 +230,6 @@ export function AppearanceSettings({ draft, update }: Props) {
           <Toggle label="Ratings" checked={theme.showRatings} onChange={(v) => setTheme({ showRatings: v })} />
           <Toggle label="Prep time on items" checked={theme.showPrepTime} onChange={(v) => setTheme({ showPrepTime: v })} />
           <Toggle label="Calories on items" checked={theme.showCalories} onChange={(v) => setTheme({ showCalories: v })} />
-          <Toggle label="“Powered by OrderFlow” badge" checked={theme.showPoweredBy} onChange={(v) => setTheme({ showPoweredBy: v })} />
         </div>
       </Section>
 

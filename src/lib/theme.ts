@@ -125,6 +125,7 @@ export function resolveTheme(theme?: StorefrontTheme | null): ResolvedTheme {
   return {
     ...THEME_DEFAULTS,
     ...(overrides as Partial<typeof THEME_DEFAULTS>),
+    showPoweredBy: true,
     preset: preset.id,
     brandColor: isHexColor(t.brandColor) ? t.brandColor : preset.brandColor,
     accentColor: isHexColor(t.accentColor) ? t.accentColor : preset.accentColor,
